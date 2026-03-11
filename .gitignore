@@ -52,3 +52,12 @@ services/.env
 
 # Local Python virtual environment
 .venv/
+
+# ML artifacts and training outputs
+*.pt
+*.onnx
+services/runs/
+services/ultralytics/
+
+# Generated reports
+android/build/reports/
