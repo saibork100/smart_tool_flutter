@@ -1,0 +1,59 @@
+name: smart_tool_recognition
+description: Smart Tool Recognition & Shelf Lookup System
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # HTTP client to talk to local FastAPI backend
+  http: ^1.2.0
+  dio: ^5.4.0
+
+  # Camera & image picking
+  camera: ^0.10.5+9
+  image_picker: ^1.0.7
+
+  # Barcode scanning
+  mobile_scanner: ^4.0.0
+
+  # Local SQLite database
+  sqflite: ^2.3.2
+  sqflite_common_ffi: ^2.3.2      # For desktop (Windows/Linux/macOS)
+  path: ^1.9.0
+  path_provider: ^2.1.2
+
+  # State management
+  provider: ^6.1.2
+
+  # UI utilities
+  cached_network_image: ^3.3.1
+  flutter_svg: ^2.0.10+1
+  shimmer: ^3.0.0
+  fluttertoast: ^8.2.4
+
+  # Shared preferences (settings / auth token storage)
+  shared_preferences: ^2.2.3
+
+  # File picker (CSV import/export)
+  file_picker: ^8.0.3
+  csv: ^6.0.0
+
+  # Permission handling
+  permission_handler: ^11.3.0
+
+  # Icons
+  cupertino_icons: ^1.0.6
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/
