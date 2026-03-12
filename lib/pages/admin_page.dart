@@ -202,6 +202,7 @@ class _ProductsTabState extends State<_ProductsTab> {
                   product: products[i],
                   onEdit: () => _openProductForm(context, products[i]),
                   onDelete: () => _deleteProduct(products[i]),
+                  onAssignShelf: () => _quickAssignShelf(context, products[i]),
                 ),
               );
             },
@@ -215,6 +216,14 @@ class _ProductsTabState extends State<_ProductsTab> {
     final result = await showDialog<bool>(
       context: context,
       builder: (_) => ProductFormDialog(product: product),
+    );
+    if (result == true) _reload();
+  }
+
+  Future<void> _quickAssignShelf(BuildContext context, Product product) async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (_) => _QuickAssignShelfDialog(product: product),
     );
     if (result == true) _reload();
   }
@@ -246,15 +255,18 @@ class _ProductTile extends StatelessWidget {
   final Product product;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
+  final VoidCallback onAssignShelf;
 
   const _ProductTile({
     required this.product,
     required this.onEdit,
     required this.onDelete,
+    required this.onAssignShelf,
   });
 
   @override
   Widget build(BuildContext context) {
+    final hasShelf = product.shelfId != null;
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 4),
       child: ListTile(
@@ -264,13 +276,36 @@ class _ProductTile extends StatelessWidget {
               style: const TextStyle(color: Colors.white)),
         ),
         title: Text(product.name, style: const TextStyle(fontWeight: FontWeight.w600)),
-        subtitle: Text(
-          'SKU: ${product.sku} · ${product.brand} · Shelf: ${product.shelfLabel}',
+        subtitle: Row(
+          children: [
+            Expanded(
+              child: Text('SKU: ${product.sku} · ${product.brand}'),
+            ),
+            const SizedBox(width: 4),
+            Icon(Icons.shelves, size: 13, color: hasShelf ? AppTheme.primaryColor : Colors.grey),
+            const SizedBox(width: 2),
+            Text(
+              hasShelf ? product.shelfLabel : 'No shelf',
+              style: TextStyle(
+                fontSize: 12,
+                color: hasShelf ? AppTheme.primaryColor : Colors.grey,
+                fontWeight: hasShelf ? FontWeight.w500 : FontWeight.normal,
+              ),
+            ),
+          ],
         ),
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             _StockChip(status: product.stockStatus),
+            IconButton(
+              icon: Icon(
+                Icons.shelves,
+                color: hasShelf ? AppTheme.primaryColor : Colors.grey,
+              ),
+              tooltip: hasShelf ? 'Reassign shelf' : 'Assign to shelf',
+              onPressed: onAssignShelf,
+            ),
             IconButton(icon: const Icon(Icons.edit_outlined), onPressed: onEdit),
             IconButton(
               icon: const Icon(Icons.delete_outline, color: AppTheme.errorColor),
@@ -300,6 +335,139 @@ class _StockChip extends StatelessWidget {
       backgroundColor: color.withOpacity(0.1),
       side: BorderSide(color: color),
       padding: EdgeInsets.zero,
+    );
+  }
+}
+
+// ── Quick Assign Shelf Dialog ─────────────────────────────────────────────────
+
+class _QuickAssignShelfDialog extends StatefulWidget {
+  final Product product;
+  const _QuickAssignShelfDialog({required this.product});
+
+  @override
+  State<_QuickAssignShelfDialog> createState() => _QuickAssignShelfDialogState();
+}
+
+class _QuickAssignShelfDialogState extends State<_QuickAssignShelfDialog> {
+  List<Map<String, dynamic>> _shelves = [];
+  String? _selectedShelfId;
+  bool _loading = true;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedShelfId = widget.product.shelfId;
+    _loadShelves();
+  }
+
+  Future<void> _loadShelves() async {
+    final shelves = await DatabaseService.instance.getShelves();
+    if (mounted) {
+      setState(() {
+        _shelves = shelves;
+        _loading = false;
+        if (_selectedShelfId != null &&
+            !shelves.any((s) => s['shelf_id'] == _selectedShelfId)) {
+          _selectedShelfId = null;
+        }
+      });
+    }
+  }
+
+  String _shelfLabel(Map<String, dynamic> shelf) {
+    final parts = [
+      shelf['aisle'] as String?,
+      shelf['bay'] as String?,
+      shelf['zone'] as String?,
+    ].where((s) => s != null && s.isNotEmpty).join('-');
+    return parts.isEmpty ? shelf['shelf_id'] as String : parts;
+  }
+
+  Future<void> _save() async {
+    setState(() => _saving = true);
+    final p = widget.product;
+    final updated = Product(
+      sku: p.sku,
+      barcode: p.barcode,
+      name: p.name,
+      brand: p.brand,
+      category: p.category,
+      type: p.type,
+      description: p.description,
+      imagePaths: p.imagePaths,
+      confidenceThreshold: p.confidenceThreshold,
+      shelfId: _selectedShelfId, // may be null to unassign
+    );
+    await DatabaseService.instance.upsertProduct(updated);
+    if (mounted) Navigator.pop(context, true);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text('Assign Shelf — ${widget.product.name}'),
+      content: SizedBox(
+        width: 360,
+        child: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : DropdownButtonFormField<String?>(
+                value: _selectedShelfId,
+                hint: const Text('Select a shelf…'),
+                isExpanded: true,
+                decoration: const InputDecoration(
+                  labelText: 'Shelf Location',
+                  prefixIcon: Icon(Icons.shelves),
+                ),
+                items: [
+                  const DropdownMenuItem<String?>(
+                    value: null,
+                    child: Text('— Unassigned —',
+                        style: TextStyle(color: Colors.grey)),
+                  ),
+                  ..._shelves.map((shelf) {
+                    final id = shelf['shelf_id'] as String;
+                    final label = _shelfLabel(shelf);
+                    final notes = shelf['notes'] as String?;
+                    return DropdownMenuItem<String?>(
+                      value: id,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(label,
+                              style:
+                                  const TextStyle(fontWeight: FontWeight.w500)),
+                          if (notes != null && notes.isNotEmpty)
+                            Text(notes,
+                                style: TextStyle(
+                                    fontSize: 11, color: Colors.grey.shade600),
+                                overflow: TextOverflow.ellipsis),
+                        ],
+                      ),
+                    );
+                  }),
+                ],
+                onChanged: (v) => setState(() => _selectedShelfId = v),
+              ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context, false),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton(
+          onPressed: _saving ? null : _save,
+          child: _saving
+              ? const SizedBox(
+                  height: 18,
+                  width: 18,
+                  child: CircularProgressIndicator(
+                      strokeWidth: 2, color: Colors.white))
+              : const Text('Assign'),
+        ),
+      ],
     );
   }
 }
@@ -498,7 +666,7 @@ class _ShelfFormDialogState extends State<_ShelfFormDialog> {
           'notes': _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
       });
       }
-      if (mounted) Navigator.pop(context, true);
+      if (mounted) Navigator.pop(context, true);  
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
