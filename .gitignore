@@ -61,3 +61,5 @@ services/ultralytics/
 
 # Generated reports
 android/build/reports/
+
+.venv311/
