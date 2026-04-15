@@ -1,35 +1,45 @@
 # Smart Tool Recognition
 
-Smart Tool Recognition is a Flutter app plus a Python backend used to identify screws/tools from images, then retrieve inventory and shelf location data.
+A Flutter app + Python backend for identifying fasteners (screws, bolts, nuts, washers, rivets, anchors) from photos, retrieving inventory and shelf location data, and continuously improving the AI model through staff-reported corrections.
 
-## How This Code Works
-
-### Architecture
+## Architecture
 
 ```text
 Flutter app (lib/)
-  -> calls FastAPI over HTTP
-  -> keeps local session/admin auth state in SQLite
+  → DetectorService  → POST /detect      (AI classification)
+  → DetectorService  → POST /report      (wrong-detection reports)
+  → DatabaseService  → products/stock/shelves CRUD
+  → AuthService      → session + admin auth (local SQLite)
 
 FastAPI backend (services/api.py)
-  -> runs YOLO inference (services/detector.py)
-  -> reads/writes products, stock, shelves, admin users in PostgreSQL
+  → YOLO11s-cls model (services/detector.py)
+  → PostgreSQL  (products, stock, shelves, admin_users, reports)
 ```
 
-### Flutter flow
+## Model
 
-1. `lib/main.dart` initializes SQLite and app providers.
-2. `AuthGate` sends users to `LoginPage`, `UserPage`, or `AdminPage`.
-3. `DetectorService` uploads image files to `POST /detect`.
-4. The predicted class is mapped to SKU and resolved to product details using backend endpoints.
-5. `DatabaseService` wraps all product, shelf, and stock API calls.
+- **Architecture**: YOLO11s-cls (classification)
+- **Classes**: 95 fastener types (vis, boulon, écrou, rondelle, rivet, cheville)
+- **Strategy**: type-classifier — model identifies the product type (e.g. `vis__th__zinc__48__din933`), then the API returns all matching size variants from the database
+- **Current accuracy**: ~66% top-1 (improving via active learning reports)
+- **Dataset**: `E:\photo coliction\type_dataset\` (train + val splits)
 
-### Backend flow
+## Active Learning Report System
 
-1. `services/api.py` loads env vars, initializes database tables, and loads YOLO weights.
-2. Detection endpoint (`/detect`) runs model inference and returns top predictions.
-3. CRUD endpoints manage products, shelves, and stock.
-4. Additional endpoints support dataset photo upload and training jobs.
+Staff can correct wrong detections directly from the app. Each correction feeds back into the training dataset.
+
+### Staff flow
+1. Take photo → AI detects item
+2. Tap **"Wrong result?"** button
+3. Select the correct class from the dropdown
+4. Submit → image saved to `reported_images/{correct_class}/`
+
+### Admin flow
+1. Open Admin Panel → **Reports** tab
+2. Review each reported image (thumbnail + wrong/correct labels)
+3. Tap ✓ to confirm or ✗ to reject
+4. Tap **Submit** → confirmed images copied to `type_dataset/train/{class}/`
+5. Retrain the model to incorporate new images
 
 ## Main Folders
 
@@ -38,64 +48,93 @@ lib/
   pages/        Flutter screens (login, user, admin)
   services/     auth + backend API + detector client
   models/       app data models
-  widgets/      reusable UI components
-  utils/        theme and backend URL config
+  widgets/      reusable UI (product card, report dialog)
+  utils/         theme and backend URL config
 
 services/
-  api.py        FastAPI app and endpoints
-  detector.py   YOLO wrapper
-  repository.py data helpers/import utilities
-  .env.example  environment template
+  api.py                FastAPI app — all endpoints
+  detector.py           YOLO inference wrapper
+  measure.py            Ruler-based bolt measurement
+  dataset_builder.py    Dataset prep + augmentation
+  image_downloader.py   icrawler-based image collector
+  clean_dataset.py      Dataset integrity checker
+  audit_val_with_model.py  Automated val audit using trained model
+  delete_bad_val_images.py  Removes audited bad images
+  migrate_parent_class.py   One-shot DB migration for parent_class column
+  extract_skus.py       SKU extraction utility
 ```
 
 ## Configuration
 
 ### Flutter backend URL
 
-Set the backend URL in `lib/utils/app_config.dart`:
+Edit `lib/utils/app_config.dart`:
 
 ```dart
-static const String backendUrl = 'http://<YOUR_IP_OR_HOST>:8000';
+static const String backendUrl = 'http://<YOUR_LAN_IP>:8000';
 ```
 
 Use your LAN IP when running Flutter on a phone.
 
 ### Backend environment variables
 
-Create `services/.env` from `services/.env.example` and set your values:
+Create `services/.env`:
 
-- `YOLO_WEIGHTS`
-- `CONFIDENCE_THRESHOLD`
-- `TOP_K`
-- `DATASET_PATH`
-- `DATABASE_URL`
+```env
+YOLO_WEIGHTS=ultralytics/best.pt
+CONFIDENCE_THRESHOLD=0.35
+TOP_K=5
+DATASET_PATH=E:\photo coliction\dataset
+TYPE_DATASET_PATH=E:\photo coliction\type_dataset
+REPORTS_DIR=D:\smart_tool_flutter\reported_images
+DATABASE_URL=postgresql://postgres:password@localhost:5432/smart_tool
+```
 
 ## Run The Project
 
 ### Start backend
 
-```bash
+```powershell
 cd services
 pip install -r "..\Requirements api.txt"
-python -m uvicorn api:app --host 0.0.0.0 --port 8000
+python -m uvicorn api:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 ### Start Flutter app
 
-```bash
+```powershell
 flutter pub get
-flutter run -d windows
+flutter run -d windows        # desktop
+flutter run -d <device-id>    # Android phone
 ```
 
-Or run on Android:
+## Retrain the model
 
-```bash
-flutter run -d <device-id>
+After submitting a batch of confirmed reports:
+
+```powershell
+yolo train model=yolo11s-cls.pt data="E:/photo coliction/type_dataset" epochs=50 imgsz=224 batch=32 project=runs/classify name=type_v3 workers=4
 ```
+
+## API Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/detect` | Run AI classification on uploaded image |
+| POST | `/measure` | Ruler-based bolt measurement |
+| POST | `/report` | Submit wrong-detection report |
+| GET | `/admin/reports` | List pending reports |
+| POST | `/admin/reports/{id}/confirm` | Confirm a report |
+| POST | `/admin/reports/{id}/reject` | Reject + delete a report |
+| POST | `/admin/submit-batch` | Copy confirmed images to training dataset |
+| GET | `/model/classes` | List all 95 model class names |
+| GET/POST | `/products` | Product CRUD |
+| GET/POST | `/shelves` | Shelf CRUD |
+| PUT | `/stock/{sku}` | Update stock levels |
+| POST | `/train` | Start model training job |
+| GET | `/train/status` | Training progress |
 
 ## Default Admin Login
-
-Seeded by the project:
 
 - Email: `trikimahoud86@gmail.com`
 - Password: `admin123`
@@ -104,5 +143,6 @@ Change this password before production use.
 
 ## Security Notes
 
-- `.env` is ignored by git to avoid pushing secrets.
-- If model files become large, use Git LFS for `*.pt`.
+- `.env` is git-ignored — never commit secrets.
+- `reported_images/`, `runs/`, `.venv311/` are git-ignored.
+- If model `.pt` files become large, use Git LFS.
