@@ -3,18 +3,25 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:csv/csv.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:provider/provider.dart';
 
 import '../models/product.dart';
+import '../models/prediction_result.dart';
 import '../services/auth_service.dart';
 import '../services/database_service.dart';
+import '../services/detector_service.dart';
 import '../utils/app_theme.dart';
 import '../widgets/backend_status_banner.dart';
 import '../widgets/product_form.dart';
+import '../widgets/product_result_card.dart';
 
 import '../utils/app_config.dart';
 
@@ -29,6 +36,16 @@ class _AdminPageState extends State<AdminPage> {
   int _selectedIndex = 0;
 
   final List<NavigationRailDestination> _destinations = const [
+    NavigationRailDestination(
+      icon: Icon(Icons.camera_alt_outlined),
+      selectedIcon: Icon(Icons.camera_alt),
+      label: Text('Identify'),
+    ),
+    NavigationRailDestination(
+      icon: Icon(Icons.qr_code_scanner),
+      selectedIcon: Icon(Icons.qr_code_scanner),
+      label: Text('Scan'),
+    ),
     NavigationRailDestination(
       icon: Icon(Icons.inventory_2_outlined),
       selectedIcon: Icon(Icons.inventory_2),
@@ -50,6 +67,11 @@ class _AdminPageState extends State<AdminPage> {
       label: Text('Import/Export'),
     ),
     NavigationRailDestination(
+      icon: Icon(Icons.flag_outlined),
+      selectedIcon: Icon(Icons.flag),
+      label: Text('Reports'),
+    ),
+    NavigationRailDestination(
       icon: Icon(Icons.settings_outlined),
       selectedIcon: Icon(Icons.settings),
       label: Text('Settings'),
@@ -62,11 +84,14 @@ class _AdminPageState extends State<AdminPage> {
     final isWide = MediaQuery.of(context).size.width > 720;
 
     final body = switch (_selectedIndex) {
-      0 => const _ProductsTab(),
-      1 => const _ShelvesTab(),
-      2 => const _StockTab(),
-      3 => const _ImportExportTab(),
-      4 => const _SettingsTab(),
+      0 => const _AdminIdentifyTab(),
+      1 => const _AdminScanTab(),
+      2 => const _ProductsTab(),
+      3 => const _ShelvesTab(),
+      4 => const _StockTab(),
+      5 => const _ImportExportTab(),
+      6 => const _ReportsTab(),
+      7 => const _SettingsTab(),
       _ => const SizedBox(),
     };
 
@@ -119,11 +144,372 @@ class _AdminPageState extends State<AdminPage> {
           : NavigationBar(
               selectedIndex: _selectedIndex,
               onDestinationSelected: (i) => setState(() => _selectedIndex = i),
-              destinations: [
-                for (final d in _destinations)
-                  NavigationDestination(icon: d.icon, label: (d.label as Text).data!),
+              destinations: const [
+                NavigationDestination(icon: Icon(Icons.camera_alt_outlined), label: 'Identify'),
+                NavigationDestination(icon: Icon(Icons.qr_code_scanner),     label: 'Scan'),
+                NavigationDestination(icon: Icon(Icons.inventory_2_outlined), label: 'Products'),
+                NavigationDestination(icon: Icon(Icons.shelves),              label: 'Shelves'),
+                NavigationDestination(icon: Icon(Icons.bar_chart_outlined),   label: 'Stock'),
+                NavigationDestination(icon: Icon(Icons.upload_file_outlined), label: 'Import'),
+                NavigationDestination(icon: Icon(Icons.flag_outlined),        label: 'Reports'),
+                NavigationDestination(icon: Icon(Icons.settings_outlined),    label: 'Settings'),
               ],
             ),
+    );
+  }
+}
+
+// ── Admin Identify Tab ────────────────────────────────────────────────────────
+
+class _AdminIdentifyTab extends StatefulWidget {
+  const _AdminIdentifyTab();
+  @override
+  State<_AdminIdentifyTab> createState() => _AdminIdentifyTabState();
+}
+
+class _AdminIdentifyTabState extends State<_AdminIdentifyTab> {
+  final _picker   = ImagePicker();
+  File?           _image;
+  bool            _rulerMode  = false;
+  bool            _processing = false;
+  PredictionResult? _result;
+  String?         _error;
+
+  Future<void> _pick(ImageSource source) async {
+    try {
+      final x = await _picker.pickImage(source: source, imageQuality: 85, maxWidth: 800);
+      if (x == null) return;
+      await _run(File(x.path));
+    } catch (e) {
+      setState(() => _error = 'Camera error: $e');
+    }
+  }
+
+  Future<void> _pickFile() async {
+    final r = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['jpg','jpeg','png','bmp','webp'],
+    );
+    if (r == null) return;
+    await _run(File(r.files.single.path!));
+  }
+
+  Future<void> _run(File file) async {
+    setState(() { _image = file; _processing = true; _error = null; _result = null; });
+    final svc = context.read<DetectorService>();
+    PredictionResult? res;
+    if (_rulerMode) {
+      res = await svc.measureFromFile(file);
+    } else {
+      res = await svc.detectFromFile(file);
+    }
+    setState(() { _processing = false; _result = res; _error = svc.errorMessage; });
+  }
+
+  void _reset() => setState(() { _image = null; _result = null; _error = null; });
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // ── Mode toggle ──────────────────────────────────────────────────
+          Row(
+            children: [
+              const Text('Mode:', style: TextStyle(fontWeight: FontWeight.w600)),
+              const SizedBox(width: 12),
+              ChoiceChip(
+                label: const Text('AI'),
+                selected: !_rulerMode,
+                onSelected: (_) => setState(() { _rulerMode = false; _reset(); }),
+              ),
+              const SizedBox(width: 8),
+              ChoiceChip(
+                label: const Text('Ruler'),
+                selected: _rulerMode,
+                avatar: const Icon(Icons.straighten, size: 16),
+                onSelected: (_) => setState(() { _rulerMode = true; _reset(); }),
+              ),
+              if (_rulerMode) ...[
+                const SizedBox(width: 8),
+                Text('Place ruler horizontally in frame',
+                    style: TextStyle(fontSize: 11, color: Colors.blue.shade700)),
+              ],
+            ],
+          ),
+          const SizedBox(height: 12),
+
+          // ── Image preview ────────────────────────────────────────────────
+          Container(
+            height: 200,
+            width: double.infinity,
+            decoration: BoxDecoration(
+              color: Colors.grey.shade100,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.grey.shade300),
+            ),
+            child: _image != null
+                ? ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: Image.file(_image!, fit: BoxFit.contain,
+                        width: double.infinity, height: double.infinity),
+                  )
+                : Center(child: Icon(Icons.camera_alt_outlined,
+                    size: 48, color: Colors.grey.shade400)),
+          ),
+          const SizedBox(height: 12),
+
+          // ── Action buttons ───────────────────────────────────────────────
+          Row(
+            children: [
+              if (!kIsWeb && !Platform.isWindows)
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: _processing ? null : () => _pick(ImageSource.camera),
+                    icon: const Icon(Icons.camera_alt, size: 16),
+                    label: const Text('Camera'),
+                  ),
+                ),
+              if (!kIsWeb && !Platform.isWindows) const SizedBox(width: 8),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: _processing ? null : _pickFile,
+                  icon: const Icon(Icons.photo_library, size: 16),
+                  label: const Text('Gallery'),
+                ),
+              ),
+              if (_result != null) ...[
+                const SizedBox(width: 8),
+                IconButton(
+                  onPressed: _reset,
+                  icon: const Icon(Icons.refresh),
+                  tooltip: 'Clear',
+                ),
+              ],
+            ],
+          ),
+          const SizedBox(height: 16),
+
+          // ── Processing ───────────────────────────────────────────────────
+          if (_processing)
+            const Center(child: CircularProgressIndicator()),
+
+          // ── Error ────────────────────────────────────────────────────────
+          if (_error != null)
+            _AdminResultBanner(
+              icon: Icons.error_outline,
+              color: AppTheme.errorColor,
+              label: _error!,
+            ),
+
+          // ── Result ───────────────────────────────────────────────────────
+          if (_result != null) ...[
+            _AdminConfidenceBanner(result: _result!),
+            const SizedBox(height: 12),
+            // YOLO11 parent-class result: full size list
+            if (_result!.hasSizeList)
+              ProductResultCard(
+                displayName:    _result!.displayName,
+                availableSizes: _result!.availableSizes,
+                confidence:     _result!.confidence,
+              )
+            // Legacy single-product result
+            else if (_result!.product != null)
+              ProductResultCard(
+                product:         _result!.product!,
+                confidence:      _result!.measurementNote != null ? null : _result!.confidence,
+                measurementNote: _result!.measurementNote,
+              )
+            else
+              _AdminResultBanner(
+                icon: Icons.info_outline,
+                color: Colors.orange,
+                label: 'Detected "${_result!.predictedLabel}" — not found in database.',
+              ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+// ── Admin confidence banner ───────────────────────────────────────────────────
+
+class _AdminConfidenceBanner extends StatelessWidget {
+  final PredictionResult result;
+  const _AdminConfidenceBanner({required this.result});
+
+  @override
+  Widget build(BuildContext context) {
+    final isRuler = result.measurementNote != null;
+    final pct     = (result.confidence * 100).toStringAsFixed(0);
+
+    final (label, color, icon) = isRuler
+        ? ('Ruler measurement — physically grounded', Colors.blue.shade700, Icons.straighten)
+        : result.confidence >= 0.70
+            ? ('High confidence ($pct%) — result likely correct', AppTheme.successColor, Icons.check_circle_outline)
+            : result.confidence >= 0.40
+                ? ('Medium confidence ($pct%) — verify result', Colors.orange, Icons.warning_amber_outlined)
+                : ('Low confidence ($pct%) — result probably wrong', AppTheme.errorColor, Icons.cancel_outlined);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.10),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: color.withOpacity(0.4)),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: color, size: 18),
+          const SizedBox(width: 8),
+          Expanded(child: Text(label,
+              style: TextStyle(color: color, fontWeight: FontWeight.w600, fontSize: 12))),
+        ],
+      ),
+    );
+  }
+}
+
+class _AdminResultBanner extends StatelessWidget {
+  final IconData icon;
+  final Color    color;
+  final String   label;
+  const _AdminResultBanner({required this.icon, required this.color, required this.label});
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+    decoration: BoxDecoration(
+      color: color.withOpacity(0.08),
+      borderRadius: BorderRadius.circular(10),
+      border: Border.all(color: color.withOpacity(0.3)),
+    ),
+    child: Row(children: [
+      Icon(icon, color: color, size: 18),
+      const SizedBox(width: 8),
+      Expanded(child: Text(label, style: TextStyle(color: color, fontSize: 12))),
+    ]),
+  );
+}
+
+// ── Admin Scan Tab ────────────────────────────────────────────────────────────
+
+class _AdminScanTab extends StatefulWidget {
+  const _AdminScanTab();
+  @override
+  State<_AdminScanTab> createState() => _AdminScanTabState();
+}
+
+class _AdminScanTabState extends State<_AdminScanTab> {
+  bool     _scannerActive = false;
+  Product? _found;
+  String?  _notFound;
+  final _manualCtrl = TextEditingController();
+
+  Future<void> _lookup(String barcode) async {
+    final p = await DatabaseService.instance.getProductByBarcode(barcode)
+           ?? await DatabaseService.instance.getProductBySku(barcode);
+    if (!mounted) return;
+    setState(() {
+      _found    = p;
+      _notFound = p == null ? 'No product found for: $barcode' : null;
+      _scannerActive = false;
+    });
+  }
+
+  void _onDetected(BarcodeCapture cap) {
+    final raw = cap.barcodes.firstOrNull?.rawValue;
+    if (raw == null || !_scannerActive) return;
+    setState(() => _scannerActive = false);
+    _lookup(raw);
+  }
+
+  @override
+  void dispose() { _manualCtrl.dispose(); super.dispose(); }
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // ── Manual entry ─────────────────────────────────────────────────
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _manualCtrl,
+                  decoration: const InputDecoration(
+                    hintText: 'Enter SKU or barcode manually…',
+                    prefixIcon: Icon(Icons.edit_outlined),
+                    isDense: true,
+                  ),
+                  onSubmitted: (v) { if (v.isNotEmpty) _lookup(v.trim()); },
+                ),
+              ),
+              const SizedBox(width: 8),
+              ElevatedButton(
+                onPressed: () {
+                  final v = _manualCtrl.text.trim();
+                  if (v.isNotEmpty) _lookup(v);
+                },
+                child: const Text('Lookup'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+
+          // ── Camera scanner ───────────────────────────────────────────────
+          if (!kIsWeb && !Platform.isWindows) ...[
+            if (!_scannerActive)
+              ElevatedButton.icon(
+                onPressed: () => setState(() {
+                  _scannerActive = true;
+                  _found = null;
+                  _notFound = null;
+                }),
+                icon: const Icon(Icons.qr_code_scanner),
+                label: const Text('Start Barcode Scanner'),
+              )
+            else
+              Column(
+                children: [
+                  SizedBox(
+                    height: 240,
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: MobileScanner(onDetect: _onDetected),
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: () => setState(() => _scannerActive = false),
+                    child: const Text('Cancel'),
+                  ),
+                ],
+              ),
+            const SizedBox(height: 16),
+          ],
+
+          // ── Result ───────────────────────────────────────────────────────
+          if (_notFound != null)
+            _AdminResultBanner(icon: Icons.search_off,
+                color: Colors.orange, label: _notFound!),
+
+          if (_found != null) ...[
+            _AdminResultBanner(
+              icon: Icons.check_circle_outline,
+              color: AppTheme.successColor,
+              label: 'Product found — SKU: ${_found!.sku}',
+            ),
+            const SizedBox(height: 12),
+            ProductResultCard(product: _found!),
+          ],
+        ],
+      ),
     );
   }
 }
@@ -275,29 +661,43 @@ class _ProductTile extends StatelessWidget {
           child: Text(product.brand.isNotEmpty ? product.brand[0].toUpperCase() : '?',
               style: const TextStyle(color: Colors.white)),
         ),
-        title: Text(product.name, style: const TextStyle(fontWeight: FontWeight.w600)),
-        subtitle: Row(
+        title: Text(
+          product.name,
+          style: const TextStyle(fontWeight: FontWeight.w600),
+        ),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Expanded(
-              child: Text('SKU: ${product.sku} · ${product.brand}'),
-            ),
-            const SizedBox(width: 4),
-            Icon(Icons.shelves, size: 13, color: hasShelf ? AppTheme.primaryColor : Colors.grey),
-            const SizedBox(width: 2),
             Text(
-              hasShelf ? product.shelfLabel : 'No shelf',
-              style: TextStyle(
-                fontSize: 12,
-                color: hasShelf ? AppTheme.primaryColor : Colors.grey,
-                fontWeight: hasShelf ? FontWeight.w500 : FontWeight.normal,
-              ),
+              'SKU: ${product.sku} · ${product.brand}',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                _StockChip(status: product.stockStatus),
+                const SizedBox(width: 8),
+                Icon(Icons.shelves, size: 13, color: hasShelf ? AppTheme.primaryColor : Colors.grey),
+                const SizedBox(width: 2),
+                Flexible(
+                  child: Text(
+                    hasShelf ? product.shelfLabel : 'No shelf',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: hasShelf ? AppTheme.primaryColor : Colors.grey,
+                      fontWeight: hasShelf ? FontWeight.w500 : FontWeight.normal,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
             ),
           ],
         ),
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            _StockChip(status: product.stockStatus),
             IconButton(
               icon: Icon(
                 Icons.shelves,
@@ -305,11 +705,20 @@ class _ProductTile extends StatelessWidget {
               ),
               tooltip: hasShelf ? 'Reassign shelf' : 'Assign to shelf',
               onPressed: onAssignShelf,
+              visualDensity: VisualDensity.compact,
+              padding: EdgeInsets.zero,
             ),
-            IconButton(icon: const Icon(Icons.edit_outlined), onPressed: onEdit),
+            IconButton(
+              icon: const Icon(Icons.edit_outlined),
+              onPressed: onEdit,
+              visualDensity: VisualDensity.compact,
+              padding: EdgeInsets.zero,
+            ),
             IconButton(
               icon: const Icon(Icons.delete_outline, color: AppTheme.errorColor),
               onPressed: onDelete,
+              visualDensity: VisualDensity.compact,
+              padding: EdgeInsets.zero,
             ),
           ],
         ),
@@ -1140,24 +1549,32 @@ class _SettingsTabState extends State<_SettingsTab> {
   }
 
   void _startPolling() {
-    _polling = true;
-    _timer = Timer.periodic(
-      const Duration(seconds: 2), (_) => _fetchTrainStatus());
+    setState(() => _polling = true);
+    _timer = Timer.periodic(const Duration(seconds: 3), (_) async {
+      await _fetchTrainStatus();
+    });
+    // Keep screen awake during training
+    WakelockPlus.enable();
   }
 
   Future<void> _fetchTrainStatus() async {
     try {
-      final response =
-          await http.get(Uri.parse('$_baseUrl/train/status'));
+      final response = await http
+          .get(Uri.parse('$_baseUrl/train/status'))
+          .timeout(const Duration(seconds: 5));
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body) as Map<String, dynamic>;
         setState(() => _trainStatus = data);
         if (data['status'] == 'done' || data['status'] == 'error') {
           _timer?.cancel();
           setState(() => _polling = false);
+          WakelockPlus.disable(); // release screen lock when done
         }
       }
-    } catch (_) {}
+    } catch (e) {
+      // Connection dropped — keep polling, don't stop
+      print('Polling error (retrying): $e');
+    }
   }
 
   // ── Build ─────────────────────────────────────────────────────────────────
@@ -1511,6 +1928,308 @@ class _SettingsTabState extends State<_SettingsTab> {
       ),
     );
   }
+}
+
+// ── Reports Tab ───────────────────────────────────────────────────────────────
+
+class _ReportsTab extends StatefulWidget {
+  const _ReportsTab();
+  @override
+  State<_ReportsTab> createState() => _ReportsTabState();
+}
+
+class _ReportsTabState extends State<_ReportsTab> {
+  static const _base = AppConfig.backendUrl;
+
+  List<Map<String, dynamic>> _reports = [];
+  bool _loading = false;
+  // local override map: id → 'confirmed'|'rejected' (before batch submit)
+  final Map<int, String> _localStatus = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() => _loading = true);
+    try {
+      final r = await http.get(Uri.parse('$_base/admin/reports?status=pending'));
+      if (r.statusCode == 200) {
+        final list = jsonDecode(r.body) as List;
+        setState(() => _reports = list.cast<Map<String, dynamic>>());
+      }
+    } catch (_) {}
+    setState(() => _loading = false);
+  }
+
+  Future<void> _confirm(int id) async {
+    await http.post(Uri.parse('$_base/admin/reports/$id/confirm'));
+    setState(() => _localStatus[id] = 'confirmed');
+  }
+
+  Future<void> _reject(int id) async {
+    await http.post(Uri.parse('$_base/admin/reports/$id/reject'));
+    setState(() => _localStatus[id] = 'rejected');
+  }
+
+  Future<void> _submitBatch() async {
+    final confirmed = _reports
+        .where((r) => _localStatus[r['id']] == 'confirmed')
+        .length;
+    if (confirmed == 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No confirmed reports to submit.')),
+      );
+      return;
+    }
+    final r = await http.post(Uri.parse('$_base/admin/submit-batch'));
+    if (!mounted) return;
+    final msg = r.statusCode == 200
+        ? (jsonDecode(r.body)['message'] as String)
+        : 'Submit failed (${r.statusCode})';
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(msg)));
+    _localStatus.clear();
+    _load();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final pendingCount = _reports
+        .where((r) => !_localStatus.containsKey(r['id']))
+        .length;
+    final confirmedCount = _reports
+        .where((r) => _localStatus[r['id']] == 'confirmed')
+        .length;
+
+    return Column(
+      children: [
+        // ── Header bar ────────────────────────────────────────────────────────
+        Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('AI Detection Reports',
+                        style: Theme.of(context).textTheme.titleLarge),
+                    Text('$pendingCount pending · $confirmedCount confirmed',
+                        style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                  ],
+                ),
+              ),
+              IconButton(
+                tooltip: 'Refresh',
+                icon: const Icon(Icons.refresh),
+                onPressed: _load,
+              ),
+              const SizedBox(width: 8),
+              ElevatedButton.icon(
+                onPressed: confirmedCount > 0 ? _submitBatch : null,
+                icon: const Icon(Icons.upload, size: 16),
+                label: Text('Submit ($confirmedCount)'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppTheme.primaryColor,
+                  foregroundColor: Colors.white,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const Divider(height: 1),
+
+        // ── List ──────────────────────────────────────────────────────────────
+        Expanded(
+          child: _loading
+              ? const Center(child: CircularProgressIndicator())
+              : _reports.isEmpty
+                  ? const Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.check_circle_outline,
+                              size: 64, color: Colors.grey),
+                          SizedBox(height: 12),
+                          Text('No pending reports',
+                              style: TextStyle(color: Colors.grey)),
+                        ],
+                      ),
+                    )
+                  : ListView.builder(
+                      padding: const EdgeInsets.all(12),
+                      itemCount: _reports.length,
+                      itemBuilder: (_, i) {
+                        final r      = _reports[i];
+                        final id     = r['id'] as int;
+                        final status = _localStatus[id];
+                        return _ReportCard(
+                          report:       r,
+                          localStatus:  status,
+                          baseUrl:      _base,
+                          onConfirm:    status == null ? () => _confirm(id) : null,
+                          onReject:     status == null ? () => _reject(id)  : null,
+                        );
+                      },
+                    ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ReportCard extends StatelessWidget {
+  final Map<String, dynamic> report;
+  final String?     localStatus;
+  final String      baseUrl;
+  final VoidCallback? onConfirm;
+  final VoidCallback? onReject;
+
+  const _ReportCard({
+    required this.report,
+    required this.localStatus,
+    required this.baseUrl,
+    this.onConfirm,
+    this.onReject,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final imageUrl = '$baseUrl${report['image_url']}';
+    final wrong    = report['wrong_class']   as String;
+    final correct  = report['correct_class'] as String;
+    final by       = report['reported_by']   as String? ?? 'staff';
+    final decided  = localStatus != null;
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(
+          color: localStatus == 'confirmed'
+              ? Colors.green
+              : localStatus == 'rejected'
+                  ? Colors.red
+                  : Colors.transparent,
+          width: 2,
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Thumbnail
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: Image.network(
+                imageUrl,
+                width: 80,
+                height: 80,
+                fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) => Container(
+                  width: 80, height: 80,
+                  color: Colors.grey.shade200,
+                  child: const Icon(Icons.broken_image, color: Colors.grey),
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+
+            // Labels
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _LabelRow(label: 'Wrong', value: wrong,
+                      color: Colors.red.shade700),
+                  const SizedBox(height: 4),
+                  _LabelRow(label: 'Correct', value: correct,
+                      color: Colors.green.shade700),
+                  const SizedBox(height: 4),
+                  Text('by $by',
+                      style: const TextStyle(color: Colors.grey, fontSize: 11)),
+                  if (decided) ...[
+                    const SizedBox(height: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: localStatus == 'confirmed'
+                            ? Colors.green.shade100
+                            : Colors.red.shade100,
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(
+                        localStatus == 'confirmed' ? '✓ Confirmed' : '✗ Rejected',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                          color: localStatus == 'confirmed'
+                              ? Colors.green.shade700
+                              : Colors.red.shade700,
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+
+            // Action buttons (hidden after decision)
+            if (!decided)
+              Column(
+                children: [
+                  IconButton(
+                    tooltip: 'Confirm — correct image',
+                    icon: const Icon(Icons.check_circle_outline,
+                        color: Colors.green),
+                    onPressed: onConfirm,
+                  ),
+                  IconButton(
+                    tooltip: 'Reject — delete image',
+                    icon: const Icon(Icons.cancel_outlined,
+                        color: Colors.red),
+                    onPressed: onReject,
+                  ),
+                ],
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _LabelRow extends StatelessWidget {
+  final String label;
+  final String value;
+  final Color  color;
+  const _LabelRow({required this.label, required this.value, required this.color});
+
+  @override
+  Widget build(BuildContext context) => Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 50,
+            child: Text('$label:',
+                style: const TextStyle(
+                    fontSize: 11, color: Colors.grey,
+                    fontWeight: FontWeight.bold)),
+          ),
+          Expanded(
+            child: Text(value,
+                style: TextStyle(fontSize: 12, color: color,
+                    fontWeight: FontWeight.w500),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis),
+          ),
+        ],
+      );
 }
 
 // ── Product Picker Dialog ─────────────────────────────────────────────────────
