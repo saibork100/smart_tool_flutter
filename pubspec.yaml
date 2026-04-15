@@ -45,6 +45,9 @@ dependencies:
   # Permission handling
   permission_handler: ^11.3.0
 
+  # Keep screen awake during scanning/detection
+  wakelock_plus: ^1.1.1
+
   # Icons
   cupertino_icons: ^1.0.6
 

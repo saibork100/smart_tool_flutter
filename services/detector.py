@@ -31,10 +31,11 @@ class Detector:
             names = r0.names
             top_indices = probs.top5
             top_confs = probs.top5conf.tolist()
+            # Always return all top-5; threshold is applied by the API layer
+            # so the Flutter UI can always show alternatives even when confidence is low.
             dets = []
             for idx, c in zip(top_indices, top_confs):
-                if c >= conf:
-                    dets.append(Detection(label=str(names[idx]), conf=float(c)))
+                dets.append(Detection(label=str(names[idx]), conf=float(c)))
             return dets
 
         # ── Object detection model ────────────────────────

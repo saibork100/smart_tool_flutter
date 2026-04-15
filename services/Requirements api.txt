@@ -1,0 +1,29 @@
+# Smart Tool Recognition — API & pipeline dependencies
+# Install with: pip install -r "Requirements api.txt"
+
+# ── Web framework ──────────────────────────────────────────────────────────────
+fastapi
+uvicorn[standard]
+python-multipart           # file uploads
+
+# ── Database ───────────────────────────────────────────────────────────────────
+sqlalchemy
+psycopg2-binary            # PostgreSQL driver
+
+# ── ML / image ─────────────────────────────────────────────────────────────────
+ultralytics                # YOLOv8
+Pillow
+pillow-heif                # HEIC support (optional but recommended)
+numpy
+
+# ── Augmentation ──────────────────────────────────────────────────────────────
+albumentations             # Phase-2 augmentation pipeline
+
+# ── Dataset downloads ─────────────────────────────────────────────────────────
+kaggle                     # Kaggle dataset API  (~/.kaggle/kaggle.json required)
+roboflow                   # Roboflow dataset SDK (ROBOFLOW_API_KEY env var required)
+
+# ── Progress & utilities ───────────────────────────────────────────────────────
+tqdm                       # Progress bars
+pyyaml                     # Parse YOLO data.yaml files
+python-dotenv              # Load .env files

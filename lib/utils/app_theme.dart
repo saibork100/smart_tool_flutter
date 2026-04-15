@@ -14,10 +14,32 @@ class AppTheme {
           secondary: accentColor,
           surface: surfaceColor,
         ),
+        textTheme: const TextTheme(
+          displayLarge:  TextStyle(fontSize: 48),
+          displayMedium: TextStyle(fontSize: 40),
+          displaySmall:  TextStyle(fontSize: 34),
+          headlineLarge: TextStyle(fontSize: 26),
+          headlineMedium:TextStyle(fontSize: 22),
+          headlineSmall: TextStyle(fontSize: 18),
+          titleLarge:    TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+          titleMedium:   TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+          titleSmall:    TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+          bodyLarge:     TextStyle(fontSize: 13),
+          bodyMedium:    TextStyle(fontSize: 12),
+          bodySmall:     TextStyle(fontSize: 11),
+          labelLarge:    TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+          labelMedium:   TextStyle(fontSize: 11),
+          labelSmall:    TextStyle(fontSize: 10),
+        ),
         appBarTheme: const AppBarTheme(
           backgroundColor: primaryColor,
           foregroundColor: Colors.white,
           elevation: 0,
+          titleTextStyle: TextStyle(
+            color: Colors.white,
+            fontSize: 17,
+            fontWeight: FontWeight.w600,
+          ),
         ),
         elevatedButtonTheme: ElevatedButtonThemeData(
           style: ElevatedButton.styleFrom(
