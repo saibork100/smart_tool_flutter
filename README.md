@@ -52,16 +52,20 @@ lib/
   utils/         theme and backend URL config
 
 services/
-  api.py                FastAPI app — all endpoints
-  detector.py           YOLO inference wrapper
-  measure.py            Ruler-based bolt measurement
-  dataset_builder.py    Dataset prep + augmentation
-  image_downloader.py   icrawler-based image collector
-  clean_dataset.py      Dataset integrity checker
-  audit_val_with_model.py  Automated val audit using trained model
-  delete_bad_val_images.py  Removes audited bad images
+  api.py                    FastAPI app — all endpoints
+  detector.py               YOLO inference wrapper
+  measure.py                Ruler-based bolt measurement
+  repository.py             Data helpers and CSV import utilities
+  dataset_builder.py        Dataset prep + augmentation
+  image_downloader.py       icrawler-based image collector
+  clean_dataset.py          Dataset integrity checker
+  audit_val_with_model.py   Automated val audit using trained model
+  delete_bad_val_images.py  Removes audited bad val images
   migrate_parent_class.py   One-shot DB migration for parent_class column
-  extract_skus.py       SKU extraction utility
+  extract_skus.py           SKU extraction utility
+  import_csv.py             Bulk product import from CSV
+  create_admin.py           Admin user creation utility
+  check_db.py               Database connection checker
 ```
 
 ## Configuration
