@@ -1,3 +1,4 @@
+# Copyright © 2026 Mahmoud Triki (W2069987), University of Westminster. All rights reserved.
 """
 Import products_rows.csv into the Flutter app's SQLite database.
 

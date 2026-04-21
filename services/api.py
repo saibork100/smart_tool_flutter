@@ -1,3 +1,4 @@
+# Copyright © 2026 Mahmoud Triki (W2069987), University of Westminster. All rights reserved.
 """
 FastAPI backend for Smart Tool Recognition.
 Run with: python -m uvicorn api:app --host 0.0.0.0 --port 8000
@@ -816,14 +817,14 @@ def login(body: AdminLoginModel):
 @app.get("/dataset/classes")
 def get_classes():
     result = []
-    train_dir = Path(DATASET_PATH) / "train"
+    train_dir = Path(TYPE_DATASET_PATH) / "train"
     if train_dir.exists():
         for folder in sorted(train_dir.iterdir()):
             if folder.is_dir():
                 count = sum(len(list(folder.glob(f"*.{ext}"))) for ext in ["jpg","jpeg","png"])
-                sku = next((k for k, v in SKU_TO_LABEL.items() if v == folder.name), None)
-                result.append({"class_name": folder.name, "sku": sku, "photo_count": count})
-    return result
+                result.append({"class_name": folder.name, "photo_count": count})
+    total_images = sum(c["photo_count"] for c in result)
+    return {"classes": result, "total_classes": len(result), "total_images": total_images}
 
 @app.post("/dataset/add-photos")
 async def add_photos(sku: str, files: list[UploadFile] = File(...)):
@@ -850,10 +851,9 @@ async def add_photos(sku: str, files: list[UploadFile] = File(...)):
 
 # ── Training ───────────────────────────────────────────────────────────────────
 @app.post("/train")
-def start_training(epochs: int = 50, dataset: str = None):
+def start_training(epochs: int = 50):
     if train_state["running"]:
         raise HTTPException(status_code=409, detail="Training already in progress.")
-    ds = dataset or DATASET_PATH
     def run():
         try:
             from ultralytics import YOLO
@@ -861,23 +861,24 @@ def start_training(epochs: int = 50, dataset: str = None):
                 "total_epochs": epochs, "current_epoch": 0,
                 "progress": 0, "message": "Starting training..."})
             output_dir = os.path.abspath(os.path.join(os.path.dirname(YOLO_WEIGHTS), "..", "runs"))
-            model = YOLO("yolov8n-cls.pt")
+            model = YOLO("yolo11s-cls.pt")
             def on_epoch_end(trainer):
                 ep  = trainer.epoch + 1
                 acc = round(float(trainer.metrics.get("metrics/accuracy_top1", 0)), 4)
                 train_state.update({"current_epoch": ep,
                     "progress": int((ep / epochs) * 100), "top1_acc": acc,
-                    "message": f"Epoch {ep}/{epochs} — Top1: {acc}"})
+                    "message": f"Epoch {ep}/{epochs} — Top1: {acc:.1%}"})
             model.add_callback("on_train_epoch_end", on_epoch_end)
-            model.train(data=ds, epochs=epochs, imgsz=224,
-                project=output_dir, name="screw_classifier", exist_ok=True, verbose=False)
-            best_src = os.path.join(output_dir, "screw_classifier", "weights", "best.pt")
+            model.train(data=TYPE_DATASET_PATH, epochs=epochs, imgsz=224,
+                project=output_dir, name="type_classifier", exist_ok=True, verbose=False)
+            best_src = os.path.join(output_dir, "type_classifier", "weights", "best.pt")
             shutil.copy2(best_src, os.path.abspath(YOLO_WEIGHTS))
             global detector
             from detector import Detector
             detector = Detector(weights_path=YOLO_WEIGHTS)
+            acc_str = f"{train_state['top1_acc']:.1%}" if train_state["top1_acc"] is not None else "N/A"
             train_state.update({"status": "done", "progress": 100,
-                "message": f"Training complete! Top1 accuracy: {train_state['top1_acc']}"})
+                "message": f"Training complete! Top1 accuracy: {acc_str}"})
         except Exception as e:
             train_state.update({"status": "error", "message": str(e)})
         finally:

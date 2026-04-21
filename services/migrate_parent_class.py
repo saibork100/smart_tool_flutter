@@ -1,3 +1,4 @@
+# Copyright © 2026 Mahmoud Triki (W2069987), University of Westminster. All rights reserved.
 """
 migrate_parent_class.py — One-shot migration to populate parent_class, size_label,
 and size_rank on existing products rows.

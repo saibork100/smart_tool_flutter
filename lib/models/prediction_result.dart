@@ -1,3 +1,4 @@
+// Copyright © 2026 Mahmoud Triki (W2069987), University of Westminster. All rights reserved.
 import 'product.dart';
 
 // ── Available size entry returned by /detect (parent-class strategy) ──────────

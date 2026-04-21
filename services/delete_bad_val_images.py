@@ -1,3 +1,4 @@
+# Copyright © 2026 Mahmoud Triki (W2069987), University of Westminster. All rights reserved.
 """
 delete_bad_val_images.py — Deletes all val images identified as wrong/duplicate/corrupt
 during the manual audit of E:\\photo coliction\\type_dataset\\val\\

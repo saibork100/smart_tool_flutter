@@ -1,3 +1,4 @@
+// Copyright © 2026 Mahmoud Triki (W2069987), University of Westminster. All rights reserved.
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';

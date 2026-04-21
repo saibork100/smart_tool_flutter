@@ -1,3 +1,4 @@
+# Copyright © 2026 Mahmoud Triki (W2069987), University of Westminster. All rights reserved.
 """
 extract_skus.py — Parse products_rows.csv and print all GAVHC fastener SKUs
 with their inferred size labels.

@@ -1,3 +1,4 @@
+# Copyright © 2026 Mahmoud Triki (W2069987), University of Westminster. All rights reserved.
 import sqlite3
 
 DB_PATH = r"D:\smart_tool_flutter\.dart_tool\sqflite_common_ffi\databases\smart_tool.db"

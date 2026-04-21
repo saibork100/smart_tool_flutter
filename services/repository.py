@@ -1,3 +1,4 @@
+# Copyright © 2026 Mahmoud Triki (W2069987), University of Westminster. All rights reserved.
 from __future__ import annotations
 from typing import Optional
 from sqlalchemy import create_engine, text

@@ -1,3 +1,4 @@
+# Copyright © 2026 Mahmoud Triki (W2069987), University of Westminster. All rights reserved.
 import requests
 
 url = "http://127.0.0.1:8000/detect"

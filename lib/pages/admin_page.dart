@@ -1,3 +1,4 @@
+// Copyright © 2026 Mahmoud Triki (W2069987), University of Westminster. All rights reserved.
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -22,6 +23,7 @@ import '../utils/app_theme.dart';
 import '../widgets/backend_status_banner.dart';
 import '../widgets/product_form.dart';
 import '../widgets/product_result_card.dart';
+import '../widgets/report_dialog.dart';
 
 import '../utils/app_config.dart';
 
@@ -328,6 +330,31 @@ class _AdminIdentifyTabState extends State<_AdminIdentifyTab> {
                 color: Colors.orange,
                 label: 'Detected "${_result!.predictedLabel}" — not found in database.',
               ),
+
+            // ── Wrong result report (AI mode only) ────────────────────────
+            if (!_rulerMode && _image != null && _result!.predictedLabel.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton.icon(
+                  onPressed: () => showDialog(
+                    context: context,
+                    builder: (_) => ReportDialog(
+                      imageFile:     _image!,
+                      detectedClass: _result!.predictedLabel,
+                    ),
+                  ),
+                  icon: const Icon(Icons.flag_outlined,
+                      size: 15, color: Colors.orange),
+                  label: const Text('Wrong result?',
+                      style: TextStyle(color: Colors.orange, fontSize: 13)),
+                  style: TextButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 10, vertical: 6),
+                  ),
+                ),
+              ),
+            ],
           ],
         ],
       ),
@@ -1363,6 +1390,35 @@ class _ImportExportTab extends StatelessWidget {
   }
 }
 
+class _DatasetChip extends StatelessWidget {
+  final IconData icon;
+  final String label;
+
+  const _DatasetChip({required this.icon, required this.label});
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        decoration: BoxDecoration(
+          color: AppTheme.primaryColor.withOpacity(0.08),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: AppTheme.primaryColor.withOpacity(0.25)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 13, color: AppTheme.primaryColor),
+            const SizedBox(width: 5),
+            Text(label,
+                style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: AppTheme.primaryColor)),
+          ],
+        ),
+      );
+}
+
 class _ActionCard extends StatelessWidget {
   final IconData icon;
   final String title;
@@ -1407,10 +1463,14 @@ class _SettingsTabState extends State<_SettingsTab> {
   bool _polling = false;
   Timer? _timer;
   int _epochs = 50;
+  bool _includeReports = false;
 
   // ── Dataset classes ──
   List<Map<String, dynamic>> _classes = [];
   bool _loadingClasses = false;
+  int _totalClasses = 0;
+  int _totalImages = 0;
+  String _classSearch = '';
 
   // ── Selected product for photo upload ──
   Product? _selectedProduct;
@@ -1421,6 +1481,7 @@ class _SettingsTabState extends State<_SettingsTab> {
   void initState() {
     super.initState();
     _loadClasses();
+    _fetchTrainStatus(); // load last accuracy
   }
 
   @override
@@ -1436,8 +1497,12 @@ class _SettingsTabState extends State<_SettingsTab> {
     try {
       final response = await http.get(Uri.parse('$_baseUrl/dataset/classes'));
       if (response.statusCode == 200) {
-        final data = jsonDecode(response.body) as List;
-        setState(() => _classes = data.cast<Map<String, dynamic>>());
+        final data = jsonDecode(response.body) as Map<String, dynamic>;
+        setState(() {
+          _classes = (data['classes'] as List).cast<Map<String, dynamic>>();
+          _totalClasses = data['total_classes'] as int;
+          _totalImages = data['total_images'] as int;
+        });
       }
     } catch (_) {}
     setState(() => _loadingClasses = false);
@@ -1525,6 +1590,11 @@ class _SettingsTabState extends State<_SettingsTab> {
   // ── Training ──────────────────────────────────────────────────────────────
 
   Future<void> _startTraining() async {
+    if (_includeReports) {
+      try {
+        await http.post(Uri.parse('$_baseUrl/admin/submit-batch'));
+      } catch (_) {}
+    }
     try {
       final response = await http.post(
         Uri.parse('$_baseUrl/train?epochs=$_epochs'),
@@ -1707,35 +1777,104 @@ class _SettingsTabState extends State<_SettingsTab> {
                       IconButton(
                         icon: const Icon(Icons.refresh),
                         onPressed: _loadClasses,
+                        tooltip: 'Refresh',
                       ),
                     ],
                   ),
-                  const SizedBox(height: 8),
+                  if (!_loadingClasses && _classes.isNotEmpty) ...[
+                    const SizedBox(height: 10),
+                    // Totals row
+                    Wrap(
+                      spacing: 8,
+                      children: [
+                        _DatasetChip(
+                          icon: Icons.category_outlined,
+                          label: '$_totalClasses classes',
+                        ),
+                        _DatasetChip(
+                          icon: Icons.photo_library_outlined,
+                          label: '$_totalImages images',
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    // Search box
+                    TextField(
+                      decoration: InputDecoration(
+                        hintText: 'Search classes...',
+                        hintStyle: const TextStyle(fontSize: 13),
+                        prefixIcon: const Icon(Icons.search, size: 18),
+                        contentPadding: const EdgeInsets.symmetric(
+                            vertical: 6, horizontal: 12),
+                        border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8)),
+                        isDense: true,
+                      ),
+                      onChanged: (v) => setState(() => _classSearch = v),
+                    ),
+                    const SizedBox(height: 8),
+                  ],
                   if (_loadingClasses)
                     const Center(child: CircularProgressIndicator())
                   else if (_classes.isEmpty)
                     const Text('No classes found.',
                         style: TextStyle(color: Colors.grey))
                   else
-                    ..._classes.map((c) => Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 4),
-                          child: Row(
-                            children: [
-                              const Icon(Icons.folder_outlined, size: 18),
-                              const SizedBox(width: 8),
-                              Expanded(child: Text(c['class_name'] as String)),
-                              Text(
-                                '${c['photo_count']} photos',
-                                style: TextStyle(
-                                  color: (c['photo_count'] as int) < 20
-                                      ? Colors.orange
-                                      : AppTheme.successColor,
-                                  fontWeight: FontWeight.w600,
+                    Builder(builder: (context) {
+                      final filtered = _classSearch.isEmpty
+                          ? _classes
+                          : _classes
+                              .where((c) => (c['class_name'] as String)
+                                  .toLowerCase()
+                                  .contains(_classSearch.toLowerCase()))
+                              .toList();
+                      if (filtered.isEmpty) {
+                        return const Text('No matching classes.',
+                            style: TextStyle(color: Colors.grey, fontSize: 13));
+                      }
+                      return Column(
+                        children: filtered.map((c) {
+                          final count = c['photo_count'] as int;
+                          final color = count < 30
+                              ? Colors.red
+                              : count < 80
+                                  ? Colors.orange
+                                  : AppTheme.successColor;
+                          return Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 3),
+                            child: Row(
+                              children: [
+                                Icon(Icons.folder_outlined,
+                                    size: 15, color: Colors.grey[500]),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(c['class_name'] as String,
+                                      style:
+                                          const TextStyle(fontSize: 12)),
                                 ),
-                              ),
-                            ],
-                          ),
-                        )),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 8, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: color.withOpacity(0.1),
+                                    borderRadius: BorderRadius.circular(10),
+                                    border: Border.all(
+                                        color: color.withOpacity(0.35)),
+                                  ),
+                                  child: Text(
+                                    '$count',
+                                    style: TextStyle(
+                                        color: color,
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w700),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        }).toList(),
+                      );
+                    }),
                 ],
               ),
             ),
@@ -1758,9 +1897,62 @@ class _SettingsTabState extends State<_SettingsTab> {
                             fontWeight: FontWeight.bold, fontSize: 16)),
                   ]),
                   const SizedBox(height: 4),
-                  const Text('Retrain the classifier with the latest photos.',
-                      style: TextStyle(color: Colors.grey)),
+                  const Text(
+                      'Retrain YOLO11s-cls on the 95-class type dataset.',
+                      style: TextStyle(color: Colors.grey, fontSize: 13)),
                   const SizedBox(height: 12),
+
+                  // Last known accuracy badge
+                  if (_trainStatus != null &&
+                      _trainStatus!['top1_acc'] != null) ...[
+                    Row(
+                      children: [
+                        Text('Last accuracy:',
+                            style: TextStyle(
+                                color: Colors.grey[600], fontSize: 13)),
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 10, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: AppTheme.successColor.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                                color:
+                                    AppTheme.successColor.withOpacity(0.4)),
+                          ),
+                          child: Text(
+                            '${((_trainStatus!['top1_acc'] as num) * 100).toStringAsFixed(1)}% Top-1',
+                            style: const TextStyle(
+                                color: AppTheme.successColor,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 13),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+
+                  // Include confirmed reports toggle
+                  Material(
+                    color: Colors.transparent,
+                    child: SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      dense: true,
+                      title: const Text('Include confirmed reports',
+                          style: TextStyle(fontSize: 14)),
+                      subtitle: const Text(
+                          'Submit pending confirmed images before training',
+                          style: TextStyle(fontSize: 12)),
+                      value: _includeReports,
+                      onChanged: _polling
+                          ? null
+                          : (v) => setState(() => _includeReports = v),
+                    ),
+                  ),
+
+                  const Divider(height: 20),
 
                   Row(
                     children: [
@@ -1842,6 +2034,47 @@ class _SettingsTabState extends State<_SettingsTab> {
               title: const Text('Change Password'),
               trailing: const Icon(Icons.chevron_right),
               onTap: () => _changePassword(context),
+            ),
+          ),
+
+          // ── About ─────────────────────────────────────────────────────────
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: AppTheme.primaryColor.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(Icons.info_outline,
+                        color: AppTheme.primaryColor),
+                  ),
+                  const SizedBox(width: 14),
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Smart Tool Recognition',
+                            style: TextStyle(
+                                fontWeight: FontWeight.bold, fontSize: 15)),
+                        SizedBox(height: 4),
+                        Text('Mahmoud Triki — W2069987',
+                            style: TextStyle(fontSize: 13)),
+                        Text('University of Westminster',
+                            style: TextStyle(
+                                fontSize: 12, color: Colors.grey)),
+                        SizedBox(height: 4),
+                        Text('© 2026 Mahmoud Triki. All rights reserved.',
+                            style: TextStyle(
+                                fontSize: 11, color: Colors.grey)),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ],

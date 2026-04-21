@@ -1,3 +1,4 @@
+// Copyright © 2026 Mahmoud Triki (W2069987), University of Westminster. All rights reserved.
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';

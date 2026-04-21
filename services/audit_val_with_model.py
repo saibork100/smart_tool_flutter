@@ -1,3 +1,4 @@
+# Copyright © 2026 Mahmoud Triki (W2069987), University of Westminster. All rights reserved.
 """
 audit_val_with_model.py — Auto-audit val images using the trained YOLO model.
 

@@ -1,3 +1,4 @@
+# Copyright © 2026 Mahmoud Triki (W2069987), University of Westminster. All rights reserved.
 """
 dataset_builder.py — Download, stage, augment, and train the Smart Tool
 Recognition YOLOv8n-cls model via a 2-phase pipeline.

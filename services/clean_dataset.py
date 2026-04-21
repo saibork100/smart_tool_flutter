@@ -1,3 +1,4 @@
+# Copyright © 2026 Mahmoud Triki (W2069987), University of Westminster. All rights reserved.
 """
 clean_dataset.py — Scan dataset folders and remove corrupt/unreadable images.
 

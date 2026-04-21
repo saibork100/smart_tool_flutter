@@ -1,3 +1,4 @@
+// Copyright © 2026 Mahmoud Triki (W2069987), University of Westminster. All rights reserved.
 import 'dart:convert';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
@@ -22,7 +23,7 @@ class DatabaseService {
 
     _db = await openDatabase(
       path,
-      version: 2,
+      version: 3,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -52,6 +53,7 @@ class DatabaseService {
       'role': 'admin',
       'is_active': 1,
     });
+    await _createProductsCache(db);
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -68,9 +70,94 @@ class DatabaseService {
         });
       }
     }
+    if (oldVersion < 3) {
+      await _createProductsCache(db);
+    }
   }
 
-  // ── Products (from API) ────────────────────────────────────────────────────
+  Future<void> _createProductsCache(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS products_cache (
+        sku                   TEXT PRIMARY KEY,
+        barcode               TEXT,
+        name                  TEXT NOT NULL,
+        brand                 TEXT NOT NULL,
+        category              TEXT NOT NULL,
+        type                  TEXT NOT NULL,
+        description           TEXT,
+        image_paths           TEXT,
+        confidence_threshold  REAL DEFAULT 0.5,
+        shelf_id              TEXT,
+        aisle                 TEXT,
+        bay                   TEXT,
+        zone                  TEXT,
+        quantity_on_shelf     INTEGER,
+        quantity_in_backstore INTEGER,
+        status                TEXT,
+        cached_at             TEXT DEFAULT (datetime('now'))
+      )
+    ''');
+  }
+
+  // ── Product cache helpers ──────────────────────────────────────────────────
+
+  Future<void> _cacheProducts(List<Product> products) async {
+    final batch = db.batch();
+    for (final p in products) {
+      batch.insert('products_cache', {
+        'sku': p.sku,
+        'barcode': p.barcode,
+        'name': p.name,
+        'brand': p.brand,
+        'category': p.category,
+        'type': p.type,
+        'description': p.description,
+        'image_paths': p.imagePaths,
+        'confidence_threshold': p.confidenceThreshold,
+        'shelf_id': p.shelfId,
+        'aisle': p.aisle,
+        'bay': p.bay,
+        'zone': p.zone,
+        'quantity_on_shelf': p.quantityOnShelf,
+        'quantity_in_backstore': p.quantityInBackstore,
+        'status': p.stockStatus,
+        'cached_at': DateTime.now().toIso8601String(),
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
+    }
+    await batch.commit(noResult: true);
+  }
+
+  Product _productFromCacheRow(Map<String, dynamic> row) =>
+      Product.fromMap({...row, 'status': row['status']});
+
+  Future<List<Product>> _getCachedProducts() async {
+    final rows = await db.query('products_cache', orderBy: 'name ASC');
+    return rows.map(_productFromCacheRow).toList();
+  }
+
+  Future<Product?> _getCachedBySku(String sku) async {
+    final rows = await db.query('products_cache',
+        where: 'sku = ?', whereArgs: [sku], limit: 1);
+    return rows.isEmpty ? null : _productFromCacheRow(rows.first);
+  }
+
+  Future<Product?> _getCachedByBarcode(String barcode) async {
+    final rows = await db.query('products_cache',
+        where: 'barcode = ?', whereArgs: [barcode], limit: 1);
+    return rows.isEmpty ? null : _productFromCacheRow(rows.first);
+  }
+
+  Future<List<Product>> _searchCached(String query) async {
+    final q = '%${query.toLowerCase()}%';
+    final rows = await db.rawQuery('''
+      SELECT * FROM products_cache
+      WHERE lower(name) LIKE ? OR lower(sku) LIKE ? OR lower(brand) LIKE ?
+      ORDER BY name ASC
+    ''', [q, q, q]);
+    return rows.map(_productFromCacheRow).toList();
+  }
+
+  // ── Products (API-first, SQLite fallback) ────────────────────────────────
 
   Future<List<Product>> getAllProducts() async {
     try {
@@ -78,13 +165,14 @@ class DatabaseService {
           .get(Uri.parse('$_baseUrl/products'))
           .timeout(const Duration(seconds: 10));
       if (response.statusCode == 200) {
-        final data = jsonDecode(response.body) as List;
-        return data.map((m) => Product.fromMap(Map<String, dynamic>.from(m))).toList();
+        final products = (jsonDecode(response.body) as List)
+            .map((m) => Product.fromMap(Map<String, dynamic>.from(m)))
+            .toList();
+        await _cacheProducts(products);
+        return products;
       }
-    } catch (e) {
-      print('getAllProducts error: $e');
-    }
-    return [];
+    } catch (_) {}
+    return _getCachedProducts();
   }
 
   Future<Product?> getProductBySku(String sku) async {
@@ -93,12 +181,12 @@ class DatabaseService {
           .get(Uri.parse('$_baseUrl/products/$sku'))
           .timeout(const Duration(seconds: 10));
       if (response.statusCode == 200) {
-        return Product.fromMap(Map<String, dynamic>.from(jsonDecode(response.body)));
+        final p = Product.fromMap(Map<String, dynamic>.from(jsonDecode(response.body)));
+        await _cacheProducts([p]);
+        return p;
       }
-    } catch (e) {
-      print('getProductBySku error: $e');
-    }
-    return null;
+    } catch (_) {}
+    return _getCachedBySku(sku);
   }
 
   Future<Product?> getProductByBarcode(String barcode) async {
@@ -107,29 +195,28 @@ class DatabaseService {
           .get(Uri.parse('$_baseUrl/products/barcode/$barcode'))
           .timeout(const Duration(seconds: 10));
       if (response.statusCode == 200) {
-        return Product.fromMap(Map<String, dynamic>.from(jsonDecode(response.body)));
+        final p = Product.fromMap(Map<String, dynamic>.from(jsonDecode(response.body)));
+        await _cacheProducts([p]);
+        return p;
       }
-    } catch (e) {
-      print('getProductByBarcode error: $e');
-    }
-    return null;
+    } catch (_) {}
+    return _getCachedByBarcode(barcode);
   }
 
   Future<List<Product>> searchProducts(String query) async {
     try {
-      final uri = Uri.parse('$_baseUrl/products').replace(
-          queryParameters: {'search': query});
-      final response = await http
-          .get(uri)
-          .timeout(const Duration(seconds: 10));
+      final uri = Uri.parse('$_baseUrl/products')
+          .replace(queryParameters: {'search': query});
+      final response = await http.get(uri).timeout(const Duration(seconds: 10));
       if (response.statusCode == 200) {
-        final data = jsonDecode(response.body) as List;
-        return data.map((m) => Product.fromMap(Map<String, dynamic>.from(m))).toList();
+        final products = (jsonDecode(response.body) as List)
+            .map((m) => Product.fromMap(Map<String, dynamic>.from(m)))
+            .toList();
+        await _cacheProducts(products);
+        return products;
       }
-    } catch (e) {
-      print('searchProducts error: $e');
-    }
-    return [];
+    } catch (_) {}
+    return _searchCached(query);
   }
 
   Future<void> upsertProduct(Product p) async {

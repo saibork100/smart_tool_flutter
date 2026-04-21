@@ -1,3 +1,4 @@
+// Copyright © 2026 Mahmoud Triki (W2069987), University of Westminster. All rights reserved.
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -453,11 +454,13 @@ String _formatScrewLabel(String label) {
 
 class _LowConfidencePicker extends StatelessWidget {
   final PredictionResult result;
+  final File? imageFile;
   final VoidCallback onRetakeAnyway;
   final Function(String label) onSelectLabel;
 
   const _LowConfidencePicker({
     required this.result,
+    this.imageFile,
     required this.onRetakeAnyway,
     required this.onSelectLabel,
   });
@@ -566,13 +569,31 @@ class _LowConfidencePicker extends StatelessWidget {
             }),
 
             const SizedBox(height: 4),
-            // None of these option
             TextButton.icon(
               onPressed: onRetakeAnyway,
               icon: const Icon(Icons.refresh, size: 16),
               label: const Text('None of these — retake photo'),
               style: TextButton.styleFrom(foregroundColor: Colors.orange),
             ),
+            if (imageFile != null)
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton.icon(
+                  onPressed: () => showDialog(
+                    context: context,
+                    builder: (_) => ReportDialog(
+                      imageFile: imageFile!,
+                      detectedClass: result.topPredictions.isNotEmpty
+                          ? result.topPredictions.first.label
+                          : '',
+                    ),
+                  ),
+                  icon: const Icon(Icons.flag_outlined,
+                      size: 15, color: Colors.orange),
+                  label: const Text('Wrong result?',
+                      style: TextStyle(color: Colors.orange, fontSize: 13)),
+                ),
+              ),
           ],
         ),
       ),
@@ -990,6 +1011,7 @@ class _IdentifyTab extends StatelessWidget {
           else if (showLowConfPicker) ...[
             _LowConfidencePicker(
               result: detector.lastResult!,
+              imageFile: selectedImage,
               onRetakeAnyway: onRetakeAnyway,
               onSelectLabel: onLabelSelected,
             ),

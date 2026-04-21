@@ -1,5 +1,9 @@
 # Smart Tool Recognition
 
+**Author:** Mahmoud Triki — Student ID: W2069987  
+**Institution:** University of Westminster  
+**© 2026 Mahmoud Triki. All rights reserved.**
+
 A Flutter app + Python backend for identifying fasteners (screws, bolts, nuts, washers, rivets, anchors) from photos, retrieving inventory and shelf location data, and continuously improving the AI model through staff-reported corrections.
 
 ## Architecture

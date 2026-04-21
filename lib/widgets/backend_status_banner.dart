@@ -1,3 +1,4 @@
+// Copyright © 2026 Mahmoud Triki (W2069987), University of Westminster. All rights reserved.
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../services/detector_service.dart';
@@ -40,7 +41,7 @@ class _BackendStatusBannerState extends State<BackendStatusBanner> {
           const SizedBox(width: 8),
           const Expanded(
             child: Text(
-              'AI backend offline — barcode & name search still work.',
+              'AI backend offline — showing cached products.',
               style: TextStyle(fontSize: 13),
             ),
           ),
