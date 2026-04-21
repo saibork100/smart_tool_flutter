@@ -1,6 +1,6 @@
 import os
 
-username = os.environ.get("USERNAME", "triki")
+username = os.environ.get("USERNAME") or os.environ.get("USER") or os.path.basename(os.path.expanduser("~"))
 search_roots = [
     rf"C:\Users\{username}\AppData\Roaming",
     rf"C:\Users\{username}\AppData\Local",

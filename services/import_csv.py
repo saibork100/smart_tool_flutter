@@ -20,7 +20,7 @@ CSV_PATH = r"E:\products_rows.csv"
 # Flutter stores SQLite on Windows at:
 # C:\Users\<username>\AppData\Roaming\com.example\smart_tool_recognition\smart_tool.db
 # Find it automatically:
-USERNAME = os.environ.get("USERNAME", "triki")
+USERNAME = os.environ.get("USERNAME") or os.environ.get("USER") or os.path.basename(os.path.expanduser("~"))
 DB_PATH = r"D:\smart_tool_flutter\.dart_tool\sqflite_common_ffi\databases\smart_tool.db"
 
 # ── Main ──────────────────────────────────────────────────────────────────────

@@ -23,9 +23,9 @@ from sqlalchemy import create_engine, text
 
 load_dotenv()
 
-DATABASE_URL = os.getenv(
-    "DATABASE_URL", "postgresql://postgres:admin123@localhost:5432/smart_tool"
-)
+DATABASE_URL = os.getenv("DATABASE_URL")
+if not DATABASE_URL:
+    raise RuntimeError("DATABASE_URL environment variable is not set.")
 engine = create_engine(DATABASE_URL)
 
 # ── All known GAVHC SKUs → size label (copy from api.py) ─────────────────────

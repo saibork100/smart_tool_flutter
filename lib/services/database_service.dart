@@ -46,30 +46,11 @@ class DatabaseService {
         created_at    TEXT DEFAULT (datetime('now'))
       )
     ''');
-    await db.insert('admin_users', {
-      'email': 'trikimahoud86@gmail.com',
-      'password_hash': '240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9',
-      'name': 'Admin',
-      'role': 'admin',
-      'is_active': 1,
-    });
+    // No default admin seeded here — admin auth is verified against the backend
     await _createProductsCache(db);
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
-    if (oldVersion < 2) {
-      final existing = await db.query('admin_users',
-          where: 'email = ?', whereArgs: ['trikimahoud86@gmail.com']);
-      if (existing.isEmpty) {
-        await db.insert('admin_users', {
-          'email': 'trikimahoud86@gmail.com',
-          'password_hash': '240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9',
-          'name': 'Admin',
-          'role': 'admin',
-          'is_active': 1,
-        });
-      }
-    }
     if (oldVersion < 3) {
       await _createProductsCache(db);
     }

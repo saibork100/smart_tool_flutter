@@ -1,12 +1,17 @@
 # Copyright © 2026 Mahmoud Triki (W2069987), University of Westminster. All rights reserved.
 import sqlite3
 import hashlib
+import getpass
+import os
 
-DB_PATH = r"D:\smart_tool_flutter\.dart_tool\sqflite_common_ffi\databases\smart_tool.db"
+DB_PATH = os.getenv(
+    "SQLITE_DB_PATH",
+    r"D:\smart_tool_flutter\.dart_tool\sqflite_common_ffi\databases\smart_tool.db"
+)
 
-email    = "trikimahoud86@gmail.com"   # ← change this
-password = "admin123"              # ← change this
-name     = "Admin"
+email = input("Admin email: ").strip()
+name  = input("Admin name: ").strip()
+password = getpass.getpass("Password: ")
 
 pw_hash = hashlib.sha256(password.encode()).hexdigest()
 
@@ -18,4 +23,4 @@ conn.execute("""
 conn.commit()
 conn.close()
 
-print(f"Admin created: {email} / {password}")
+print(f"Admin user '{email}' created successfully.")

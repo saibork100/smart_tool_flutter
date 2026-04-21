@@ -27,11 +27,12 @@ load_dotenv()
 # ── App setup ──────────────────────────────────────────────────────────────────
 app = FastAPI(title="Smart Tool Recognition API", version="2.0.0")
 
+_allowed_origins = [o.strip() for o in os.getenv("CORS_ORIGINS", "*").split(",")]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=_allowed_origins,
+    allow_methods=["GET", "POST", "PUT", "DELETE"],
+    allow_headers=["Content-Type", "Authorization"],
 )
 
 # ── Config ─────────────────────────────────────────────────────────────────────
@@ -41,7 +42,9 @@ TOP_K                = int(os.getenv("TOP_K", "5"))
 DATASET_PATH         = os.getenv("DATASET_PATH", r"E:\photo coliction\dataset")
 TYPE_DATASET_PATH    = os.getenv("TYPE_DATASET_PATH", r"E:\photo coliction\type_dataset")
 REPORTS_DIR          = os.getenv("REPORTS_DIR", r"D:\smart_tool_flutter\reported_images")
-DATABASE_URL         = os.getenv("DATABASE_URL", "postgresql://postgres:admin123@localhost:5432/smart_tool")
+DATABASE_URL         = os.getenv("DATABASE_URL")
+if not DATABASE_URL:
+    raise RuntimeError("DATABASE_URL environment variable is not set. Add it to services/.env")
 
 # ── Database setup ─────────────────────────────────────────────────────────────
 engine = create_engine(DATABASE_URL)
@@ -107,14 +110,7 @@ def init_db():
                 created_at    TIMESTAMP DEFAULT NOW()
             )
         """))
-        # Seed default admin (password: admin123)
-        conn.execute(text("""
-            INSERT INTO admin_users (email, password_hash, name, role, is_active)
-            VALUES ('trikimahoud86@gmail.com',
-                    '240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9',
-                    'Admin', 'admin', 1)
-            ON CONFLICT (email) DO NOTHING
-        """))
+        # No default admin seeded — run create_admin.py to create the first admin user
         conn.commit()
     print("Database initialized.")
 

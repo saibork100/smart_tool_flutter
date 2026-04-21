@@ -144,10 +144,7 @@ yolo train model=yolo11s-cls.pt data="E:/photo coliction/type_dataset" epochs=50
 
 ## Default Admin Login
 
-- Email: `trikimahoud86@gmail.com`
-- Password: `admin123`
-
-Change this password before production use.
+Run `python services/create_admin.py` to create the first admin account interactively.
 
 ## Security Notes
 
