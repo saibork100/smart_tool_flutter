@@ -1,8 +1,10 @@
 // Copyright © 2026 Mahmoud Triki (W2069987), University of Westminster. All rights reserved.
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../services/auth_service.dart';
 import '../utils/app_theme.dart';
+import '../utils/app_config.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -50,10 +52,51 @@ class _LoginPageState extends State<LoginPage> {
     await context.read<AuthService>().loginAsStaff(name: name);
   }
 
+  Future<void> _showServerUrlDialog(BuildContext context) async {
+    final ctrl = TextEditingController(text: AppConfig.backendUrl);
+    await showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Backend Server URL'),
+        content: TextField(
+          controller: ctrl,
+          decoration: const InputDecoration(
+            hintText: 'http://192.168.1.x:8000',
+            labelText: 'Server URL',
+          ),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel')),
+          FilledButton(
+            onPressed: () async {
+              final url = ctrl.text.trim();
+              if (url.isNotEmpty) {
+                AppConfig.backendUrl = url;
+                final prefs = await SharedPreferences.getInstance();
+                await prefs.setString('backend_url', url);
+              }
+              if (context.mounted) Navigator.pop(context);
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppTheme.primaryColor,
+      floatingActionButton: FloatingActionButton.small(
+        tooltip: 'Configure server URL',
+        backgroundColor: Colors.white24,
+        foregroundColor: Colors.white,
+        onPressed: () => _showServerUrlDialog(context),
+        child: const Icon(Icons.settings_ethernet),
+      ),
       body: Center(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),

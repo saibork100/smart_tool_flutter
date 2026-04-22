@@ -1,0 +1,54 @@
+# Copyright © 2026 Mahmoud Triki (W2069987), University of Westminster. All rights reserved.
+# Smart Tool Recognition — Docker Compose
+# Run with: docker-compose up --build
+# Default admin login: admin@smarttool.demo / SmartTool2026
+
+version: '3.8'
+
+services:
+
+  # ── PostgreSQL database ────────────────────────────────────────────────────
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: smart_tool
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: smart_tool_2026
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ── FastAPI backend ────────────────────────────────────────────────────────
+  backend:
+    build:
+      context: ./services
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql://postgres:smart_tool_2026@db:5432/smart_tool
+      YOLO_WEIGHTS: ultralytics/best.pt
+      CONFIDENCE_THRESHOLD: "0.35"
+      TOP_K: "5"
+      REPORTS_DIR: /app/reported_images
+      TYPE_DATASET_PATH: /app/type_dataset
+      CORS_ORIGINS: "*"
+      # Default admin credentials — change these before production use
+      ADMIN_EMAIL: admin@smarttool.demo
+      ADMIN_PASSWORD: SmartTool2026
+    volumes:
+      - reported_images:/app/reported_images
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: on-failure
+
+volumes:
+  postgres_data:
+  reported_images:

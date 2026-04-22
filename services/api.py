@@ -110,7 +110,18 @@ def init_db():
                 created_at    TIMESTAMP DEFAULT NOW()
             )
         """))
-        # No default admin seeded — run create_admin.py to create the first admin user
+        # Auto-seed admin from env vars (used by Docker; skip if not set)
+        _admin_email    = os.getenv("ADMIN_EMAIL")
+        _admin_password = os.getenv("ADMIN_PASSWORD")
+        if _admin_email and _admin_password:
+            import hashlib
+            _pw_hash = hashlib.sha256(_admin_password.encode()).hexdigest()
+            conn.execute(text("""
+                INSERT INTO admin_users (email, password_hash, name, role, is_active)
+                VALUES (:email, :hash, 'Admin', 'admin', 1)
+                ON CONFLICT (email) DO NOTHING
+            """), {"email": _admin_email, "hash": _pw_hash})
+            print(f"Admin seeded: {_admin_email}")
         conn.commit()
     print("Database initialized.")
 

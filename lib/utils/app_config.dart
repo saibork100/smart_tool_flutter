@@ -1,5 +1,5 @@
 // Copyright © 2026 Mahmoud Triki (W2069987), University of Westminster. All rights reserved.
 class AppConfig {
-  // Put your PC's LAN IP address here (e.g. http://x.x.x.x:8000)
-  static const String backendUrl = 'http://x.x.x.x:8000';
+  // Default: localhost for Docker on same PC. Change via the login screen gear icon.
+  static String backendUrl = 'http://localhost:8000';
 }

@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:flutter/foundation.dart';
 
+import 'package:shared_preferences/shared_preferences.dart';
 import 'services/auth_service.dart';
 import 'services/database_service.dart';
 import 'services/detector_service.dart';
@@ -11,6 +12,7 @@ import 'pages/login_page.dart';
 import 'pages/user_page.dart';
 import 'pages/admin_page.dart';
 import 'utils/app_theme.dart';
+import 'utils/app_config.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -22,6 +24,13 @@ void main() async {
           defaultTargetPlatform == TargetPlatform.macOS)) {
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
+  }
+
+  // Load saved backend URL
+  final prefs = await SharedPreferences.getInstance();
+  final savedUrl = prefs.getString('backend_url');
+  if (savedUrl != null && savedUrl.isNotEmpty) {
+    AppConfig.backendUrl = savedUrl;
   }
 
   // Initialise local database
