@@ -55,9 +55,9 @@ services/.env
 
 # ML artifacts and training outputs
 *.onnx
+*.pt
 services/runs/
 # Allow best.pt (model weights bundled with Docker image)
-services/ultralytics/*.pt
 !services/ultralytics/best.pt
 
 # Generated reports
