@@ -12,7 +12,7 @@ class DatabaseService {
 
   Database? _db;
 
-  static const String _baseUrl = AppConfig.backendUrl;
+  static String get _baseUrl => AppConfig.backendUrl;
 
   // ── Local SQLite (admin session only) ─────────────────────────────────────
 

@@ -123,7 +123,67 @@ def init_db():
             """), {"email": _admin_email, "hash": _pw_hash})
             print(f"Admin seeded: {_admin_email}")
         conn.commit()
+
     print("Database initialized.")
+
+    # Auto-seed products from CSV if table is empty and PRODUCTS_CSV is set
+    _csv_path = os.getenv("PRODUCTS_CSV")
+    if _csv_path and os.path.exists(_csv_path):
+        with engine.connect() as check_conn:
+            count = check_conn.execute(text("SELECT COUNT(*) FROM products")).scalar()
+        if count == 0:
+            _seed_products_from_csv(_csv_path)
+            print(f"Products seeded from {_csv_path}")
+
+def _seed_products_from_csv(csv_path: str):
+    import csv as _csv
+    with open(csv_path, encoding="utf-8", errors="ignore") as f:
+        sample = f.read(1024)
+        sep = ";" if sample.count(";") > sample.count(",") else ","
+        f.seek(0)
+        reader = _csv.DictReader(f, delimiter=sep)
+        imported = 0
+        for row in reader:
+            def _get(*keys):
+                for k in keys:
+                    v = (row.get(k) or "").strip()
+                    if v:
+                        return v
+                return ""
+            sku  = _get("sku", "ID", "id")
+            name = _get("name", "Name", "NAME")
+            if not sku or not name:
+                continue
+            brand_raw = _get("brand", "Brand")
+            if not brand_raw:
+                words = name.split()
+                brand_raw = next((w for w in reversed(words) if w.isupper() and len(w) > 1), "Unknown")
+            barcode = _get("barcode", "Barcode", "EAN") or None
+            # Use numeric SKU column as barcode only if it looks like a barcode
+            if not barcode:
+                raw_sku_col = _get("SKU")
+                if raw_sku_col and raw_sku_col != sku:
+                    barcode = raw_sku_col
+            try:
+                # Each insert in its own transaction to avoid aborting the whole batch
+                with engine.begin() as conn:
+                    conn.execute(text("""
+                        INSERT INTO products (sku, barcode, name, brand, category, type, description)
+                        VALUES (:sku, :barcode, :name, :brand, :category, :type, :desc)
+                        ON CONFLICT (sku) DO NOTHING
+                    """), {
+                        "sku":      sku,
+                        "barcode":  barcode,
+                        "name":     name,
+                        "brand":    brand_raw,
+                        "category": _get("category", "Category", "Main Category", "main_category"),
+                        "type":     _get("type", "Type") or "tool",
+                        "desc":     _get("description", "Description", "Short description") or None,
+                    })
+                imported += 1
+            except Exception:
+                continue
+        print(f"  → {imported} products imported from CSV")
 
 init_db()
 
@@ -820,6 +880,26 @@ def login(body: AdminLoginModel):
         r = dict(row._mapping)
         return {"name": r["name"], "email": r["email"], "role": r["role"]}
 
+class ChangePasswordModel(BaseModel):
+    email: str
+    old_password_hash: str
+    new_password_hash: str
+
+@app.post("/auth/change-password")
+def change_password(body: ChangePasswordModel):
+    with engine.connect() as conn:
+        rows = conn.execute(text("""
+            SELECT id FROM admin_users
+            WHERE email = :email AND password_hash = :old_hash AND is_active = 1
+        """), {"email": body.email, "old_hash": body.old_password_hash})
+        if not rows.fetchone():
+            raise HTTPException(status_code=401, detail="Invalid email or password")
+        conn.execute(text("""
+            UPDATE admin_users SET password_hash = :new_hash WHERE email = :email
+        """), {"new_hash": body.new_password_hash, "email": body.email})
+        conn.commit()
+    return {"message": "Password changed"}
+
 # ── Dataset management ─────────────────────────────────────────────────────────
 @app.get("/dataset/classes")
 def get_classes():
@@ -875,6 +955,9 @@ def start_training(epochs: int = 50):
                 train_state.update({"current_epoch": ep,
                     "progress": int((ep / epochs) * 100), "top1_acc": acc,
                     "message": f"Epoch {ep}/{epochs} — Top1: {acc:.1%}"})
+            train_dir = Path(TYPE_DATASET_PATH) / "train"
+            if not train_dir.exists() or not any(train_dir.iterdir()):
+                raise ValueError("Training dataset is empty or not mounted. Add images first.")
             model.add_callback("on_train_epoch_end", on_epoch_end)
             model.train(data=TYPE_DATASET_PATH, epochs=epochs, imgsz=224,
                 project=output_dir, name="type_classifier", exist_ok=True, verbose=False)
@@ -1108,6 +1191,8 @@ def submit_batch():
 
         submitted = 0
         for row in rows:
+            if not row[1] or not row[2]:
+                continue
             src = Path(row[1])
             if not src.exists():
                 continue

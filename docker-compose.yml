@@ -42,8 +42,11 @@ services:
       # Default admin credentials — change these before production use
       ADMIN_EMAIL: admin@smarttool.demo
       ADMIN_PASSWORD: SmartTool2026
+      # Optional: path to products CSV inside the container (for auto-seeding)
+      PRODUCTS_CSV: /app/import_data/products_rows.csv
     volumes:
       - reported_images:/app/reported_images
+      - ./import_data:/app/import_data:ro
     depends_on:
       db:
         condition: service_healthy

@@ -1337,32 +1337,88 @@ class _ImportExportTab extends StatelessWidget {
 
     final file = File(result.files.single.path!);
     final content = await file.readAsString();
-    final rows = const CsvToListConverter(eol: '\n').convert(content);
+
+    // Detect separator: semicolon or comma
+    final firstLine = content.split('\n').first;
+    final sep = firstLine.contains(';') ? ';' : ',';
+
+    final rows = CsvToListConverter(
+      fieldDelimiter: sep,
+      eol: '\n',
+      shouldParseNumbers: false,
+    ).convert(content);
     if (rows.isEmpty) return;
 
-    final headers = rows.first.map((e) => e.toString()).toList();
-    int imported = 0;
-    for (final row in rows.skip(1)) {
-      final map = {for (var i = 0; i < headers.length; i++) headers[i]: row[i]};
-      try {
-        final product = Product(
-          sku: map['sku'].toString(),
-          name: map['name'].toString(),
-          brand: map['brand'].toString(),
-          category: map['category'].toString(),
-          type: map['type']?.toString() ?? 'tool',
-          barcode: map['barcode']?.toString(),
-          description: map['description']?.toString(),
-        );
-        await DatabaseService.instance.upsertProduct(product);
-        imported++;
-      } catch (_) {}
+    final headers = rows.first.map((e) => e.toString().trim()).toList();
+
+    // Support both our simple format and the products_rows.csv e-commerce format
+    String _col(Map m, List<String> keys) {
+      for (final k in keys) {
+        final v = m[k]?.toString().trim() ?? '';
+        if (v.isNotEmpty) return v;
+      }
+      return '';
     }
 
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Imported $imported products')),
+    String _extractBrand(String name) {
+      final words = name.split(' ');
+      for (final w in words.reversed) {
+        if (w.length > 1 && w == w.toUpperCase() && RegExp(r'^[A-Z]+$').hasMatch(w)) {
+          return w;
+        }
+      }
+      return '';
+    }
+
+    final products = <Map<String, dynamic>>[];
+    for (final row in rows.skip(1)) {
+      if (row.length < 2) continue;
+      final map = {for (var i = 0; i < headers.length && i < row.length; i++) headers[i]: row[i]};
+      final sku = _col(map, ['sku', 'ID', 'id']);
+      final name = _col(map, ['name', 'Name', 'NAME']);
+      if (sku.isEmpty || name.isEmpty) continue;
+      final brand = _col(map, ['brand', 'Brand', 'BRAND']) .isNotEmpty
+          ? _col(map, ['brand', 'Brand', 'BRAND'])
+          : _extractBrand(name);
+      products.add({
+        'sku': sku,
+        'name': name,
+        'brand': brand.isNotEmpty ? brand : 'Unknown',
+        'category': _col(map, ['category', 'Category', 'Main Category', 'main_category']),
+        'type': _col(map, ['type', 'Type']).isNotEmpty ? _col(map, ['type', 'Type']) : 'tool',
+        'barcode': _col(map, ['barcode', 'Barcode', 'SKU', 'EAN']).isEmpty ? null : _col(map, ['barcode', 'Barcode', 'SKU', 'EAN']),
+        'description': _col(map, ['description', 'Description', 'Short description']).isEmpty ? null : _col(map, ['description', 'Description', 'Short description']),
+        'shelf_id': _col(map, ['shelf_id', 'shelf']).isEmpty ? null : _col(map, ['shelf_id', 'shelf']),
+      });
+    }
+
+    if (products.isEmpty) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No valid rows found in CSV')),
+        );
+      }
+      return;
+    }
+
+    try {
+      final response = await http.post(
+        Uri.parse('${AppConfig.backendUrl}/products/bulk'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode(products),
       );
+      if (context.mounted) {
+        final msg = response.statusCode == 200
+            ? 'Imported ${products.length} products'
+            : 'Import failed (${response.statusCode})';
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Import error: $e')),
+        );
+      }
     }
   }
 
@@ -1456,7 +1512,7 @@ class _SettingsTab extends StatefulWidget {
 }
 
 class _SettingsTabState extends State<_SettingsTab> {
-  static const String _baseUrl = AppConfig.backendUrl;
+  static String get _baseUrl => AppConfig.backendUrl;
 
   // ── Train state ──
   Map<String, dynamic>? _trainStatus;
@@ -2172,7 +2228,7 @@ class _ReportsTab extends StatefulWidget {
 }
 
 class _ReportsTabState extends State<_ReportsTab> {
-  static const _base = AppConfig.backendUrl;
+  static String get _base => AppConfig.backendUrl;
 
   List<Map<String, dynamic>> _reports = [];
   bool _loading = false;

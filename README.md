@@ -4,150 +4,192 @@
 **Institution:** University of Westminster  
 **© 2026 Mahmoud Triki. All rights reserved.**
 
-A Flutter app + Python backend for identifying fasteners (screws, bolts, nuts, washers, rivets, anchors) from photos, retrieving inventory and shelf location data, and continuously improving the AI model through staff-reported corrections.
+A Flutter app + FastAPI backend for identifying fasteners (screws, bolts, nuts, washers, rivets, anchors) from photos, retrieving inventory and shelf location data, and continuously improving the AI model through staff-reported corrections.
+
+---
+
+## Quick Start (Docker)
+
+The entire backend runs with a single command — no Python, PostgreSQL, or ML library installation required.
+
+### 1. Clone the repository
+
+```bash
+git clone https://github.com/saibork100/smart_tool_flutter.git
+cd smart_tool_flutter
+```
+
+### 2. Start the backend
+
+```bash
+docker-compose up --build
+```
+
+This automatically:
+- Starts PostgreSQL 15
+- Builds the FastAPI backend and installs all Python dependencies
+- Loads the trained AI model (`services/ultralytics/best.pt`)
+- Creates all database tables
+- Seeds the default admin account
+
+First build: ~3–5 minutes. Subsequent starts: ~10 seconds.
+
+### 3. Verify backend
+
+Open `http://localhost:8000/health` — you should see `{"status": "ok", "model_loaded": true}`.
+
+### 4. Run the Flutter app
+
+```powershell
+flutter pub get
+flutter build windows
+start build\windows\x64\runner\Release\smart_tool_recognition.exe
+```
+
+For Android, tap the network icon on the login screen and enter `http://<your-LAN-IP>:8000`.
+
+### Default admin login
+
+| Field | Value |
+|-------|-------|
+| Email | `admin@smarttool.demo` |
+| Password | `SmartTool2026` |
+
+> Change this password after first login via **Admin Panel → Settings → Change Password**.
+
+---
 
 ## Architecture
 
 ```text
-Flutter app (lib/)
-  → DetectorService  → POST /detect      (AI classification)
-  → DetectorService  → POST /report      (wrong-detection reports)
-  → DatabaseService  → products/stock/shelves CRUD
-  → AuthService      → session + admin auth (local SQLite)
+Flutter app (Dart)
+  ├── AuthService      → POST /auth/login, POST /auth/change-password
+  ├── DetectorService  → POST /detect, POST /report
+  ├── DatabaseService  → products / stock / shelves CRUD (API + SQLite offline cache)
+  └── UI pages         → login, staff (user), admin
 
-FastAPI backend (services/api.py)
-  → YOLO11s-cls model (services/detector.py)
-  → PostgreSQL  (products, stock, shelves, admin_users, reports)
+FastAPI backend (Python)
+  ├── YOLO11s-cls model   (services/detector.py)
+  ├── PostgreSQL database (products, stock, shelves, admin_users, reports)
+  └── Docker Compose      (backend + PostgreSQL containers)
 ```
 
-## Model
+### Key design decisions
 
-- **Architecture**: YOLO11s-cls (classification)
-- **Classes**: 95 fastener types (vis, boulon, écrou, rondelle, rivet, cheville)
-- **Strategy**: type-classifier — model identifies the product type (e.g. `vis__th__zinc__48__din933`), then the API returns all matching size variants from the database
-- **Current accuracy**: ~66% top-1 (improving via active learning reports)
-- **Dataset**: `E:\photo coliction\type_dataset\` (train + val splits)
+- **Admin authentication** goes to the backend API (PostgreSQL), not local SQLite.
+- **Offline cache**: products are cached in local SQLite so staff can search even when the backend is down.
+- **Runtime URL config**: the backend URL is saved in SharedPreferences and configurable from the login screen — no rebuild needed when switching between localhost and LAN IP.
+- **CSV import** sends products directly to the backend via `/products/bulk`.
+
+---
+
+## AI Model
+
+| Property | Value |
+|----------|-------|
+| Architecture | YOLO11s-cls (classification) |
+| Classes | 95 fastener types |
+| Strategy | Type-classifier → returns all matching size variants from DB |
+| Accuracy | ~66% Top-1 on validation set |
+| Inference | CPU inside Docker, GPU if available |
+
+**Class naming convention:** `vis__th__zinc__48__din933` (material + type + coating + size + standard)
+
+---
 
 ## Active Learning Report System
 
-Staff can correct wrong detections directly from the app. Each correction feeds back into the training dataset.
+Staff correct wrong detections. Corrections feed back into the training dataset.
 
-### Staff flow
+**Staff flow:**
 1. Take photo → AI detects item
-2. Tap **"Wrong result?"** button
-3. Select the correct class from the dropdown
-4. Submit → image saved to `reported_images/{correct_class}/`
+2. Tap **"Wrong result?"** if incorrect
+3. Select the correct class → submit
+4. Image saved to `reported_images/{correct_class}/`
 
-### Admin flow
-1. Open Admin Panel → **Reports** tab
-2. Review each reported image (thumbnail + wrong/correct labels)
-3. Tap ✓ to confirm or ✗ to reject
-4. Tap **Submit** → confirmed images copied to `type_dataset/train/{class}/`
-5. Retrain the model to incorporate new images
+**Admin flow:**
+1. Admin Panel → **Reports** tab
+2. Review thumbnails (wrong vs. correct labels)
+3. Confirm ✓ or reject ✗
+4. **Submit batch** → copies confirmed images into `type_dataset/train/{class}/`
+5. **Start Training** → retrains YOLO model, replaces `best.pt` live
 
-## Main Folders
+---
+
+## Project Structure
 
 ```text
-lib/
-  pages/        Flutter screens (login, user, admin)
-  services/     auth + backend API + detector client
-  models/       app data models
-  widgets/      reusable UI (product card, report dialog)
-  utils/         theme and backend URL config
-
-services/
-  api.py                    FastAPI app — all endpoints
-  detector.py               YOLO inference wrapper
-  measure.py                Ruler-based bolt measurement
-  repository.py             Data helpers and CSV import utilities
-  dataset_builder.py        Dataset prep + augmentation
-  image_downloader.py       icrawler-based image collector
-  clean_dataset.py          Dataset integrity checker
-  audit_val_with_model.py   Automated val audit using trained model
-  delete_bad_val_images.py  Removes audited bad val images
-  migrate_parent_class.py   One-shot DB migration for parent_class column
-  extract_skus.py           SKU extraction utility
-  import_csv.py             Bulk product import from CSV
-  create_admin.py           Admin user creation utility
-  check_db.py               Database connection checker
+smart_tool_flutter/
+├── lib/
+│   ├── pages/          login_page, user_page, admin_page
+│   ├── services/       auth_service, database_service, detector_service
+│   ├── models/         product.dart
+│   ├── widgets/        backend_status_banner, product_card
+│   └── utils/          app_theme.dart, app_config.dart
+├── services/
+│   ├── api.py          All FastAPI endpoints
+│   ├── detector.py     YOLO inference wrapper
+│   ├── ultralytics/
+│   │   └── best.pt     Trained model (YOLO11s-cls, 95 classes)
+│   ├── Dockerfile      Backend Docker image
+│   └── requirements.txt
+├── docker-compose.yml  Orchestrates backend + PostgreSQL
+├── SECURITY.md         Security architecture documentation
+├── SETUP.md            Full setup guide
+└── README.md           This file
 ```
 
-## Configuration
-
-### Flutter backend URL
-
-Edit `lib/utils/app_config.dart`:
-
-```dart
-static const String backendUrl = 'http://<YOUR_LAN_IP>:8000';
-```
-
-Use your LAN IP when running Flutter on a phone.
-
-### Backend environment variables
-
-Create `services/.env`:
-
-```env
-YOLO_WEIGHTS=ultralytics/best.pt
-CONFIDENCE_THRESHOLD=0.35
-TOP_K=5
-DATASET_PATH=E:\photo coliction\dataset
-TYPE_DATASET_PATH=E:\photo coliction\type_dataset
-REPORTS_DIR=D:\smart_tool_flutter\reported_images
-DATABASE_URL=postgresql://postgres:password@localhost:5432/smart_tool
-```
-
-## Run The Project
-
-### Start backend
-
-```powershell
-cd services
-pip install -r "..\Requirements api.txt"
-python -m uvicorn api:app --host 0.0.0.0 --port 8000 --reload
-```
-
-### Start Flutter app
-
-```powershell
-flutter pub get
-flutter run -d windows        # desktop
-flutter run -d <device-id>    # Android phone
-```
-
-## Retrain the model
-
-After submitting a batch of confirmed reports:
-
-```powershell
-yolo train model=yolo11s-cls.pt data="E:/photo coliction/type_dataset" epochs=50 imgsz=224 batch=32 project=runs/classify name=type_v3 workers=4
-```
+---
 
 ## API Endpoints
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/detect` | Run AI classification on uploaded image |
-| POST | `/measure` | Ruler-based bolt measurement |
+| GET | `/health` | Backend and model status |
+| POST | `/detect` | AI classification on uploaded image |
 | POST | `/report` | Submit wrong-detection report |
-| GET | `/admin/reports` | List pending reports |
+| GET | `/admin/reports` | List pending staff reports |
 | POST | `/admin/reports/{id}/confirm` | Confirm a report |
-| POST | `/admin/reports/{id}/reject` | Reject + delete a report |
+| POST | `/admin/reports/{id}/reject` | Reject and delete a report |
 | POST | `/admin/submit-batch` | Copy confirmed images to training dataset |
-| GET | `/model/classes` | List all 95 model class names |
-| GET/POST | `/products` | Product CRUD |
+| POST | `/auth/login` | Admin login (returns name, email, role) |
+| POST | `/auth/change-password` | Change admin password |
+| GET/POST | `/products` | List / create products |
+| POST | `/products/bulk` | Bulk upsert products from CSV import |
+| GET | `/products/{sku}` | Get product by SKU |
+| GET | `/products/barcode/{barcode}` | Get product by barcode |
 | GET/POST | `/shelves` | Shelf CRUD |
 | PUT | `/stock/{sku}` | Update stock levels |
-| POST | `/train` | Start model training job |
-| GET | `/train/status` | Training progress |
+| GET | `/dataset/classes` | List training dataset classes |
+| POST | `/train` | Start model retraining job |
+| GET | `/train/status` | Training progress and accuracy |
+| GET | `/model/classes` | List all 95 model class names |
 
-## Default Admin Login
+---
 
-Run `python services/create_admin.py` to create the first admin account interactively.
+## Configuration
 
-## Security Notes
+### Docker environment variables (`docker-compose.yml`)
 
-- `.env` is git-ignored — never commit secrets.
-- `reported_images/`, `runs/`, `.venv311/` are git-ignored.
-- If model `.pt` files become large, use Git LFS.
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DATABASE_URL` | *(set by compose)* | PostgreSQL connection string |
+| `YOLO_WEIGHTS` | `ultralytics/best.pt` | Path to model weights |
+| `CONFIDENCE_THRESHOLD` | `0.35` | Minimum detection confidence |
+| `TOP_K` | `5` | Number of top predictions returned |
+| `CORS_ORIGINS` | `*` | Allowed origins for CORS |
+| `ADMIN_EMAIL` | `admin@smarttool.demo` | Seeded admin email |
+| `ADMIN_PASSWORD` | `SmartTool2026` | Seeded admin password |
+
+### Flutter backend URL
+
+Configurable at runtime via the network icon on the login screen — no rebuild needed. Saved in SharedPreferences.
+
+---
+
+## Security
+
+- All passwords hashed with SHA-256 before storage and transmission.
+- No credentials, IPs, or secrets committed to Git.
+- `.env`, `reported_images/`, `runs/`, `.venv/` are all git-ignored.
+- Full security architecture documented in `SECURITY.md`.

@@ -10,7 +10,7 @@ import 'database_service.dart';
 import '../utils/app_config.dart';
 
 class DetectorService extends ChangeNotifier {
-  static const String _baseUrl = AppConfig.backendUrl;
+  static String get _baseUrl => AppConfig.backendUrl;
 
   static const Map<String, String> _labelToSku = {
     // M4

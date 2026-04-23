@@ -2,8 +2,9 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:crypto/crypto.dart';
+import 'package:http/http.dart' as http;
 import 'dart:convert';
-import 'database_service.dart';
+import '../utils/app_config.dart';
 
 class AuthService extends ChangeNotifier {
   bool _isLoggedIn = false;
@@ -26,21 +27,24 @@ class AuthService extends ChangeNotifier {
     required String email,
     required String password,
   }) async {
-    final hash = _hashPassword(password);
-    final rows = await DatabaseService.instance.db.query(
-      'admin_users',
-      where: 'email = ? AND password_hash = ? AND is_active = 1',
-      whereArgs: [email, hash],
-    );
-    if (rows.isEmpty) return false;
-
-    final user = rows.first;
-    await _saveSession(
-      email: email,
-      name: user['name'] as String? ?? email,
-      isAdmin: true,
-    );
-    return true;
+    try {
+      final hash = _hashPassword(password);
+      final response = await http.post(
+        Uri.parse('${AppConfig.backendUrl}/auth/login'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'email': email, 'password_hash': hash}),
+      );
+      if (response.statusCode != 200) return false;
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      await _saveSession(
+        email: email,
+        name: data['name'] as String? ?? email,
+        isAdmin: true,
+      );
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 
   /// Staff login — no password required (magic-link style like existing system).
@@ -63,22 +67,20 @@ class AuthService extends ChangeNotifier {
     required String oldPassword,
     required String newPassword,
   }) async {
-    final oldHash = _hashPassword(oldPassword);
-    final rows = await DatabaseService.instance.db.query(
-      'admin_users',
-      where: 'email = ? AND password_hash = ?',
-      whereArgs: [email, oldHash],
-    );
-    if (rows.isEmpty) return false;
-
-    final newHash = _hashPassword(newPassword);
-    await DatabaseService.instance.db.update(
-      'admin_users',
-      {'password_hash': newHash},
-      where: 'email = ?',
-      whereArgs: [email],
-    );
-    return true;
+    try {
+      final response = await http.post(
+        Uri.parse('${AppConfig.backendUrl}/auth/change-password'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'email': email,
+          'old_password_hash': _hashPassword(oldPassword),
+          'new_password_hash': _hashPassword(newPassword),
+        }),
+      );
+      return response.statusCode == 200;
+    } catch (_) {
+      return false;
+    }
   }
 
   // ── Private helpers ─────────────────────────────────────────────────────────
